@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ChineseDictionaryView: View {
     @ObservedObject private var store = DictionaryStore.shared
+    @ObservedObject private var dictHistory = DictHistoryStore.shared
     @State private var query = ""
     @State private var scope: DictScope = .all
 
@@ -37,11 +38,56 @@ struct ChineseDictionaryView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if trimmedQuery.isEmpty {
-                        ContentUnavailableView(
-                            "离线汉字词典",
-                            systemImage: "book.closed",
-                            description: Text("输入汉字、词语、成语，或拼音，如：月亮 / yueliang / 风花雪月。数据已内置在 App 里，断网也能查。")
-                        )
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 24) {
+                                VStack(spacing: 8) {
+                                    Image(systemName: "book.closed")
+                                        .font(.largeTitle)
+                                        .foregroundStyle(.secondary)
+                                    Text("离线汉字词典")
+                                        .font(.headline)
+                                    Text("输入汉字、词语、成语，或拼音，如：月亮 / yueliang / 风花雪月。数据已内置在 App 里，断网也能查。")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.center)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 40)
+
+                                // 最近查过：只记点开看过的词条，点一下直接再查
+                                if !dictHistory.items.isEmpty {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        HStack {
+                                            Text("最近查过")
+                                                .font(.headline)
+                                            Spacer()
+                                            Button("清除") {
+                                                dictHistory.clear()
+                                            }
+                                            .font(.callout)
+                                        }
+                                        ForEach(dictHistory.items) { item in
+                                            Button {
+                                                scope = DictScope(rawValue: item.scopeRaw) ?? .all
+                                                query = item.text
+                                            } label: {
+                                                HStack {
+                                                    Text(item.text)
+                                                    Spacer()
+                                                    Text(item.scopeRaw)
+                                                        .font(.callout)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            .buttonStyle(.plain)
+                                            Divider()
+                                        }
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                        }
                     } else if results.isEmpty {
                         ContentUnavailableView(
                             "没有找到「\(trimmedQuery)」",
@@ -113,6 +159,48 @@ struct ChineseDictionaryView: View {
                 store.load()
             }
         }
+    }
+}
+
+// MARK: - 字典搜索历史：只记点开看过的词条，存在本机
+
+struct DictHistoryItem: Codable, Hashable, Identifiable {
+    let scopeRaw: String
+    let text: String
+    let date: Date
+
+    var id: String { scopeRaw + text }
+}
+
+final class DictHistoryStore: ObservableObject {
+    static let shared = DictHistoryStore()
+
+    private let key = "dictSearchHistory"
+    private let maxCount = 20
+
+    @Published private(set) var items: [DictHistoryItem] = []
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([DictHistoryItem].self, from: data) {
+            items = decoded
+        }
+    }
+
+    /// 点开词条详情时记一次；重复的移到最前面
+    func record(scope: DictScope, text: String) {
+        guard !text.isEmpty else { return }
+        items.removeAll { $0.scopeRaw == scope.rawValue && $0.text == text }
+        items.insert(DictHistoryItem(scopeRaw: scope.rawValue, text: text, date: Date()), at: 0)
+        if items.count > maxCount {
+            items = Array(items.prefix(maxCount))
+        }
+        UserDefaults.standard.set(try? JSONEncoder().encode(items), forKey: key)
+    }
+
+    func clear() {
+        items = []
+        UserDefaults.standard.removeObject(forKey: key)
     }
 }
 
@@ -203,6 +291,7 @@ struct DictCharDetailView: View {
         .safeAreaPadding(.bottom, 96)
         .navigationTitle(item.word)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { DictHistoryStore.shared.record(scope: .chars, text: item.word) }
     }
 }
 
@@ -234,6 +323,7 @@ struct DictWordDetailView: View {
         .safeAreaPadding(.bottom, 96)
         .navigationTitle(item.word)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { DictHistoryStore.shared.record(scope: .words, text: item.word) }
     }
 }
 
@@ -279,6 +369,7 @@ struct DictIdiomDetailView: View {
         .safeAreaPadding(.bottom, 96)
         .navigationTitle(item.word)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { DictHistoryStore.shared.record(scope: .idioms, text: item.word) }
     }
 }
 
@@ -309,5 +400,6 @@ struct DictXiehouyuDetailView: View {
         .safeAreaPadding(.bottom, 96)
         .navigationTitle("歇后语")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { DictHistoryStore.shared.record(scope: .xiehouyu, text: item.riddle) }
     }
 }

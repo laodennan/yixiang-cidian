@@ -244,8 +244,15 @@ struct SettingsView: View {
     @AppStorage("aiBaseURL") private var baseURL = "https://api.openai.com/v1"
     @AppStorage("aiAPIKey") private var apiKey = ""
     @AppStorage("aiModel") private var model = "gpt-4o-mini"
+    @ObservedObject private var webCache = WebSearchCache.shared
 
     @Environment(\.dismiss) private var dismiss
+
+    private var appVersion: String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        return "\(short) (\(build))"
+    }
 
     var body: some View {
         NavigationStack {
@@ -262,6 +269,31 @@ struct SettingsView: View {
 
                 Section {
                     Text("API Key 只保存在本机，不会上传到任何服务器（除你配置的接口外）。默认接口为 OpenAI，也可改为 DeepSeek、通义千问等任何 OpenAI 兼容接口，只需修改 Base URL 和模型名。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("联网搜索缓存") {
+                    HStack {
+                        Text("已缓存")
+                        Spacer()
+                        Text("\(webCache.items.count) 条")
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("清除联网搜索缓存", role: .destructive) {
+                        webCache.clear()
+                    }
+                    .disabled(webCache.items.isEmpty)
+                }
+
+                Section("关于") {
+                    HStack {
+                        Text("版本")
+                        Spacer()
+                        Text("文栖 \(appVersion)")
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("词库与字典数据均保存在本机；AI 功能使用你自己配置的接口，密钥只存本机。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
