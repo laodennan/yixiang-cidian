@@ -12,7 +12,16 @@
 		A1B2C3D40000000000000116 /* DictionaryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000115 /* DictionaryViews.swift */; };
 		A1B2C3D40000000000000118 /* RewriteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000117 /* RewriteView.swift */; };
 		A1B2C3D40000000000000120 /* AIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4000000000000011F /* AIClient.swift */; };
+		A1B2C3D40000000000000201 /* DictionaryData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000200 /* DictionaryData.swift */; };
+		A1B2C3D40000000000000203 /* ChineseDictionaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000202 /* ChineseDictionaryView.swift */; };
+		A1B2C3D40000000000000205 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000204 /* HistoryView.swift */; };
 		A1B2C3D4000000000000011A /* lexicon.json in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000119 /* lexicon.json */; };
+		A1B2C3D40000000000000207 /* dict_chars.json in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000206 /* dict_chars.json */; };
+		A1B2C3D40000000000000209 /* dict_words_a.json in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000208 /* dict_words_a.json */; };
+		A1B2C3D40000000000000213 /* dict_words_b.json in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000212 /* dict_words_b.json */; };
+		A1B2C3D4000000000000020B /* dict_idioms.json in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4000000000000020A /* dict_idioms.json */; };
+		A1B2C3D4000000000000020D /* dict_xiehouyu.json in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4000000000000020C /* dict_xiehouyu.json */; };
+		A1B2C3D4000000000000020F /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4000000000000020E /* Localizable.strings */; };
 		A1B2C3D4000000000000011E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4000000000000011D /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -23,6 +32,15 @@
 		A1B2C3D40000000000000117 /* RewriteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewriteView.swift; sourceTree = "<group>"; };
 		A1B2C3D4000000000000011F /* AIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIClient.swift; sourceTree = "<group>"; };
 		A1B2C3D40000000000000119 /* lexicon.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = lexicon.json; sourceTree = "<group>"; };
+		A1B2C3D40000000000000200 /* DictionaryData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryData.swift; sourceTree = "<group>"; };
+		A1B2C3D40000000000000202 /* ChineseDictionaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChineseDictionaryView.swift; sourceTree = "<group>"; };
+		A1B2C3D40000000000000204 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		A1B2C3D40000000000000206 /* dict_chars.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = dict_chars.json; sourceTree = "<group>"; };
+		A1B2C3D40000000000000208 /* dict_words_a.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = dict_words_a.json; sourceTree = "<group>"; };
+		A1B2C3D40000000000000212 /* dict_words_b.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = dict_words_b.json; sourceTree = "<group>"; };
+		A1B2C3D4000000000000020A /* dict_idioms.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = dict_idioms.json; sourceTree = "<group>"; };
+		A1B2C3D4000000000000020C /* dict_xiehouyu.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = dict_xiehouyu.json; sourceTree = "<group>"; };
+		A1B2C3D40000000000000210 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = zh-Hans; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		A1B2C3D4000000000000011C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D4000000000000011D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1B2C3D4000000000000011B /* Yixiang.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Yixiang.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -55,7 +73,16 @@
 				A1B2C3D40000000000000115 /* DictionaryViews.swift */,
 				A1B2C3D40000000000000117 /* RewriteView.swift */,
 				A1B2C3D4000000000000011F /* AIClient.swift */,
+				A1B2C3D40000000000000200 /* DictionaryData.swift */,
+				A1B2C3D40000000000000202 /* ChineseDictionaryView.swift */,
+				A1B2C3D40000000000000204 /* HistoryView.swift */,
 				A1B2C3D40000000000000119 /* lexicon.json */,
+				A1B2C3D40000000000000206 /* dict_chars.json */,
+				A1B2C3D40000000000000208 /* dict_words_a.json */,
+				A1B2C3D40000000000000212 /* dict_words_b.json */,
+				A1B2C3D4000000000000020A /* dict_idioms.json */,
+				A1B2C3D4000000000000020C /* dict_xiehouyu.json */,
+				A1B2C3D4000000000000020E /* Localizable.strings */,
 				A1B2C3D4000000000000011C /* Info.plist */,
 				A1B2C3D4000000000000011D /* Assets.xcassets */,
 			);
@@ -71,6 +98,17 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXVariantGroup section */
+		A1B2C3D4000000000000020E /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A1B2C3D40000000000000210 /* zh-Hans */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin PBXNativeTarget section */
 		A1B2C3D40000000000000005 /* Yixiang */ = {
@@ -106,11 +144,12 @@
 			};
 			buildConfigurationList = A1B2C3D40000000000000009 /* Build configuration list for PBXProject "Yixiang" */;
 			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = en;
+			developmentRegion = zh-Hans;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
+				zh-Hans,
 			);
 			mainGroup = A1B2C3D40000000000000002;
 			productRefGroup = A1B2C3D40000000000000004 /* Products */;
@@ -128,6 +167,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D4000000000000011A /* lexicon.json in Resources */,
+				A1B2C3D40000000000000207 /* dict_chars.json in Resources */,
+				A1B2C3D40000000000000209 /* dict_words_a.json in Resources */,
+				A1B2C3D40000000000000213 /* dict_words_b.json in Resources */,
+				A1B2C3D4000000000000020B /* dict_idioms.json in Resources */,
+				A1B2C3D4000000000000020D /* dict_xiehouyu.json in Resources */,
+				A1B2C3D4000000000000020F /* Localizable.strings in Resources */,
 				A1B2C3D4000000000000011E /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -144,6 +189,9 @@
 				A1B2C3D40000000000000116 /* DictionaryViews.swift in Sources */,
 				A1B2C3D40000000000000118 /* RewriteView.swift in Sources */,
 				A1B2C3D40000000000000120 /* AIClient.swift in Sources */,
+				A1B2C3D40000000000000201 /* DictionaryData.swift in Sources */,
+				A1B2C3D40000000000000203 /* ChineseDictionaryView.swift in Sources */,
+				A1B2C3D40000000000000205 /* HistoryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -202,7 +250,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Yixiang/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -210,7 +258,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.yixiang;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMBED_LIBRARIES_WITH_INSTALL = YES;
@@ -224,7 +272,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Yixiang/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -232,7 +280,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.yixiang;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMBED_LIBRARIES_WITH_INSTALL = YES;
