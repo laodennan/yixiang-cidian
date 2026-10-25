@@ -40,13 +40,22 @@ struct CopyButton: View {
     }
 }
 
-// MARK: - 搜索页
+// MARK: - 搜索页（含 AI 兜底：离线词库没有的词可调用用户配置的接口生成）
 
 struct SearchView: View {
     @State private var query = ""
+    @State private var generatedEntry: LexiconEntry?
+    @State private var showGenerated = false
+    @State private var isGenerating = false
+    @State private var aiError = ""
+    @State private var showingSettings = false
 
     private var results: [LexiconEntry] {
         Lexicon.search(query)
+    }
+
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
@@ -54,17 +63,70 @@ struct SearchView: View {
             List(results) { entry in
                 NavigationLink(entry.word, destination: EntryDetailView(entry: entry))
             }
+            .safeAreaPadding(.bottom, 96)
             .navigationTitle("意象词典")
             .searchable(text: $query, prompt: "输入意象，如月亮")
             .overlay {
-                if results.isEmpty {
-                    ContentUnavailableView(
-                        "没有找到相关意象",
-                        systemImage: "magnifyingglass",
-                        description: Text("换个词试试，比如雨、雪、离别")
-                    )
+                if results.isEmpty && !trimmedQuery.isEmpty {
+                    VStack(spacing: 16) {
+                        ContentUnavailableView(
+                            "离线词库里还没有「\(trimmedQuery)」",
+                            systemImage: "magnifyingglass",
+                            description: Text("可以让 AI 现场为这个词生成一则词条")
+                        )
+                        if isGenerating {
+                            ProgressView("正在生成…")
+                        } else {
+                            Button("用 AI 生成「\(trimmedQuery)」的内容") {
+                                Task { await generate() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            if !AISettings.hasKey {
+                                Button("去设置 API Key") {
+                                    showingSettings = true
+                                }
+                                .font(.callout)
+                            }
+                        }
+                        if !aiError.isEmpty {
+                            Text(aiError)
+                                .foregroundStyle(.red)
+                                .font(.callout)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        }
+                    }
                 }
             }
+            .navigationDestination(isPresented: $showGenerated) {
+                if let entry = generatedEntry {
+                    EntryDetailView(entry: entry, isGenerated: true)
+                }
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+            }
+        }
+    }
+
+    private func generate() async {
+        let word = trimmedQuery
+        guard !word.isEmpty else { return }
+        aiError = ""
+        isGenerating = true
+        defer { isGenerating = false }
+
+        if !AISettings.hasKey {
+            aiError = "还没有配置 API Key，请先到设置里填写（「AI 改写」页右上角的设置）"
+            return
+        }
+
+        do {
+            let entry = try await AIClient.generateEntry(for: word)
+            generatedEntry = entry
+            showGenerated = true
+        } catch {
+            aiError = (error as? AIError)?.errorDescription ?? "生成失败，请重试"
         }
     }
 }
@@ -88,6 +150,7 @@ struct CategoryView: View {
                     }
                 }
             }
+            .safeAreaPadding(.bottom, 96)
             .navigationTitle("分类")
         }
     }
@@ -100,6 +163,7 @@ struct EntryListView: View {
         List(Lexicon.entries(in: category)) { entry in
             NavigationLink(entry.word, destination: EntryDetailView(entry: entry))
         }
+        .safeAreaPadding(.bottom, 96)
         .navigationTitle(category)
     }
 }
@@ -108,6 +172,8 @@ struct EntryListView: View {
 
 struct EntryDetailView: View {
     let entry: LexiconEntry
+    /// AI 现场生成的词条不进内置词库，因此不提供收藏，只展示内容
+    var isGenerated = false
 
     @EnvironmentObject private var favorites: FavoritesStore
 
@@ -118,18 +184,26 @@ struct EntryDetailView: View {
                     Text(entry.word)
                         .font(.largeTitle.bold())
                     Spacer()
-                    Button {
-                        favorites.toggle(entry.word)
-                    } label: {
-                        Image(systemName: favorites.isFavorite(entry.word) ? "star.fill" : "star")
-                            .font(.title2)
+                    if !isGenerated {
+                        Button {
+                            favorites.toggle(entry.word)
+                        } label: {
+                            Image(systemName: favorites.isFavorite(entry.word) ? "star.fill" : "star")
+                                .font(.title2)
+                        }
+                        .buttonStyle(.borderless)
                     }
-                    .buttonStyle(.borderless)
                 }
 
                 Text(entry.category)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+
+                if isGenerated {
+                    Text("由 AI 现场生成，仅供参考；古诗句请以原文核对")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("古诗句")
@@ -166,6 +240,7 @@ struct EntryDetailView: View {
             }
             .padding()
         }
+        .safeAreaPadding(.bottom, 96)
         .navigationTitle(entry.word)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -181,6 +256,7 @@ struct FavoritesView: View {
             List(favorites.favoriteEntries) { entry in
                 NavigationLink(entry.word, destination: EntryDetailView(entry: entry))
             }
+            .safeAreaPadding(.bottom, 96)
             .navigationTitle("收藏")
             .overlay {
                 if favorites.favoriteEntries.isEmpty {

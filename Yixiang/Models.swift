@@ -26,7 +26,12 @@ struct LexiconFile: Codable {
 // MARK: - 内置词库加载
 
 enum Lexicon {
-    static let categories = ["自然", "时节", "情感"]
+    /// 分类：按固定顺序排列词库里已有的分类，未列出的分类排在后面
+    static let categories: [String] = {
+        let preferred = ["自然", "时节", "植物", "动物", "器物", "色彩", "身体", "饮食", "建筑", "节气", "神话", "情感"]
+        let present = Set(entries.map { $0.category })
+        return preferred.filter { present.contains($0) } + present.subtracting(preferred).sorted()
+    }()
 
     static let entries: [LexiconEntry] = {
         guard let url = Bundle.main.url(forResource: "lexicon", withExtension: "json"),

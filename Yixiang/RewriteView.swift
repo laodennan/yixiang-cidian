@@ -1,32 +1,8 @@
 import SwiftUI
 
-// MARK: - OpenAI 兼容接口的请求 / 响应模型
-
-private struct ChatMessage: Codable {
-    let role: String
-    let content: String
-}
-
-private struct ChatRequest: Codable {
-    let model: String
-    let messages: [ChatMessage]
-}
-
-private struct ChatChoice: Codable {
-    let message: ChatMessage
-}
-
-private struct ChatResponse: Codable {
-    let choices: [ChatChoice]
-}
-
-// MARK: - AI 改写页
+// MARK: - AI 改写页（接口调用走共享 AIClient，配置见设置页）
 
 struct RewriteView: View {
-    @AppStorage("aiBaseURL") private var baseURL = "https://api.openai.com/v1"
-    @AppStorage("aiAPIKey") private var apiKey = ""
-    @AppStorage("aiModel") private var model = "gpt-4o-mini"
-
     @State private var input = ""
     @State private var hint = ""
     @State private var result = ""
@@ -84,6 +60,7 @@ struct RewriteView: View {
                 }
                 .padding()
             }
+            .safeAreaPadding(.bottom, 96)
             .navigationTitle("AI 改写")
             .toolbar {
                 Button("设置") { showingSettings = true }
@@ -99,20 +76,7 @@ struct RewriteView: View {
         result = ""
 
         let sentence = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else {
-            errorMessage = "请先在设置里填写 API Key"
-            return
-        }
-
-        var base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        while base.hasSuffix("/") {
-            base.removeLast()
-        }
-        guard let url = URL(string: base + "/chat/completions") else {
-            errorMessage = "Base URL 不正确，请在设置里检查"
-            return
-        }
+        guard !sentence.isEmpty else { return }
 
         var system = "你是一位擅长中文文学表达的助手。请把用户给的句子改写得更生动、更有意象，可适度化用古典意象，但不要改变原意。只返回改写后的句子，不要加任何解释。"
         let hintText = hint.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -120,49 +84,13 @@ struct RewriteView: View {
             system += "可围绕「\(hintText)」这一意象展开。"
         }
 
-        let requestBody = ChatRequest(
-            model: model.trimmingCharacters(in: .whitespacesAndNewlines),
-            messages: [
-                ChatMessage(role: "system", content: system),
-                ChatMessage(role: "user", content: sentence),
-            ]
-        )
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        do {
-            request.httpBody = try JSONEncoder().encode(requestBody)
-        } catch {
-            errorMessage = "请求构造失败：\(error.localizedDescription)"
-            return
-        }
-
         isLoading = true
         defer { isLoading = false }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                errorMessage = "请求失败：没有收到有效响应"
-                return
-            }
-            guard (200...299).contains(http.statusCode) else {
-                errorMessage = "请求失败，状态码 \(http.statusCode)，请检查 Base URL、API Key 和模型名是否正确"
-                return
-            }
-            let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
-            guard let content = decoded.choices.first?.message.content
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                !content.isEmpty
-            else {
-                errorMessage = "接口返回了空结果，请重试"
-                return
-            }
-            result = content
+            result = try await AIClient.chat(system: system, user: sentence)
         } catch {
-            errorMessage = "请求失败：\(error.localizedDescription)，请检查网络和接口配置"
+            errorMessage = (error as? AIError)?.errorDescription ?? "请求失败，请检查网络和接口配置"
         }
     }
 }
