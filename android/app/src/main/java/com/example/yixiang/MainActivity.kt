@@ -6,6 +6,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -28,6 +36,8 @@ class MainActivity : ComponentActivity() {
         HistoryStore.init(applicationContext)
         DictHistoryStore.init(applicationContext)
         WebSearchCache.init(applicationContext)
+        SynonymCache.init(applicationContext)
+        MaterialStore.init(applicationContext)
         AppLog.init(applicationContext)
         SettingsStore.init(applicationContext)
         setContent {
@@ -48,9 +58,11 @@ fun App() {
     var showMySentences by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showSceneList by remember { mutableStateOf(false) }
+    var sceneDetail by remember { mutableStateOf<SceneEntry?>(null) }
 
     val inSubScreen = detail != null || dictDetail != null || historyDetail != null ||
-        showMyWords || showMySentences || showLog
+        showMyWords || showMySentences || showLog || showSceneList || sceneDetail != null
 
     BackHandler(enabled = detail != null) {
         detail = null
@@ -70,6 +82,12 @@ fun App() {
     BackHandler(enabled = detail == null && dictDetail == null && historyDetail == null && !showMyWords && !showMySentences && showLog) {
         showLog = false
     }
+    BackHandler(enabled = detail == null && dictDetail == null && historyDetail == null && !showMyWords && !showMySentences && !showLog && sceneDetail != null) {
+        sceneDetail = null
+    }
+    BackHandler(enabled = detail == null && dictDetail == null && historyDetail == null && !showMyWords && !showMySentences && !showLog && sceneDetail == null && showSceneList) {
+        showSceneList = false
+    }
 
     Scaffold(
         bottomBar = {
@@ -78,32 +96,38 @@ fun App() {
                     NavigationBarItem(
                         selected = tab == Tab.DICT,
                         onClick = { tab = Tab.DICT },
-                        icon = {},
+                        icon = { Icon(Icons.Filled.Search, contentDescription = "词典") },
                         label = { Text("词典") }
                     )
                     NavigationBarItem(
                         selected = tab == Tab.DICTIONARY,
                         onClick = { tab = Tab.DICTIONARY },
-                        icon = {},
+                        icon = { Icon(Icons.Filled.Book, contentDescription = "字典") },
                         label = { Text("字典") }
                     )
                     NavigationBarItem(
                         selected = tab == Tab.REWRITE,
                         onClick = { tab = Tab.REWRITE },
-                        icon = {},
+                        icon = { Icon(Icons.Filled.Edit, contentDescription = "AI 改写") },
                         label = { Text("AI 改写") }
                     )
                     NavigationBarItem(
                         selected = tab == Tab.HISTORY,
                         onClick = { tab = Tab.HISTORY },
-                        icon = {},
+                        icon = { Icon(Icons.Filled.History, contentDescription = "历史") },
                         label = { Text("历史") }
                     )
                     NavigationBarItem(
                         selected = tab == Tab.FAVORITES,
                         onClick = { tab = Tab.FAVORITES },
-                        icon = {},
+                        icon = { Icon(Icons.Filled.Star, contentDescription = "收藏") },
                         label = { Text("收藏") }
+                    )
+                    NavigationBarItem(
+                        selected = tab == Tab.MATERIAL,
+                        onClick = { tab = Tab.MATERIAL },
+                        icon = { Icon(Icons.Filled.Folder, contentDescription = "素材本") },
+                        label = { Text("素材本") }
                     )
                 }
             }
@@ -129,6 +153,17 @@ fun App() {
                 showLog -> {
                     LogScreen()
                 }
+                showSceneList -> {
+                    SceneListScreen(
+                        onSceneClick = {
+                            sceneDetail = it
+                            showSceneList = false
+                        }
+                    )
+                }
+                sceneDetail != null -> {
+                    SceneDetailScreen(entry = sceneDetail!!)
+                }
                 else -> {
                     when (tab) {
                         Tab.DICT -> DictionaryScreen(
@@ -136,7 +171,9 @@ fun App() {
                             onDictDetailClick = { dictDetail = it },
                             onShowSettings = { showSettings = true },
                             onShowMyWords = { showMyWords = true },
-                            onShowMySentences = { showMySentences = true }
+                            onShowMySentences = { showMySentences = true },
+                            onSceneListClick = { showSceneList = true },
+                            onSceneDetailClick = { sceneDetail = it }
                         )
                         Tab.DICTIONARY -> DictionaryTabScreen(
                             onDictDetailClick = { dictDetail = it }
@@ -148,6 +185,7 @@ fun App() {
                             onHistoryClick = { historyDetail = it }
                         )
                         Tab.FAVORITES -> FavoritesScreen { detail = it }
+                        Tab.MATERIAL -> MaterialScreen()
                     }
                 }
             }
