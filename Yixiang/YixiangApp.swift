@@ -6,6 +6,7 @@ struct YixiangApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(FavoritesStore.shared)
+                .environmentObject(SentenceFavoritesStore.shared)
         }
     }
 }

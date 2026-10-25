@@ -166,4 +166,68 @@ enum AIClient {
         }
         return entry
     }
+
+    /// 改写：一次调用返回恰好 3 个扩写版本。
+    /// 模型被要求返回 JSON 字符串数组；解析时依次尝试：
+    /// 1) 去围栏后按 JSON 数组解码；2) 按行切分并去掉行首编号；3) 整体作为一个版本。
+    static func rewriteVariants(system: String, user: String) async throws -> [String] {
+        let raw = try await chat(system: system, user: user)
+        return parseVariants(raw)
+    }
+
+    static func parseVariants(_ raw: String) -> [String] {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 去掉可能的代码围栏（```json ... ``` 或 ``` ... ```）
+        if text.hasPrefix("```") {
+            if let firstNewline = text.firstIndex(of: "\n") {
+                text = String(text[text.index(after: firstNewline)...])
+            }
+            if text.hasSuffix("```") {
+                text = String(text.dropLast(3))
+            }
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // 1) 干净的 JSON 数组（或去围栏后的 JSON 数组）
+        if let data = text.data(using: .utf8),
+           let array = try? JSONDecoder().decode([String].self, from: data) {
+            let cleaned = array
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !cleaned.isEmpty {
+                return Array(cleaned.prefix(3))
+            }
+        }
+
+        // 2) 按行切分：去掉行首编号（如 1. / 1、/ ① / 一、），去掉空行
+        let lines = text.components(separatedBy: .newlines)
+            .map { stripVariantNumbering($0) }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if lines.count > 1 {
+            return Array(lines.prefix(3))
+        }
+
+        // 3) 兜底：整体作为一个版本（空文本则返回空数组，由调用方提示重试）
+        return text.isEmpty ? [] : [text]
+    }
+
+    /// 去掉一行开头的编号：1. / 1、/ 1) / （1）/ ① / 一、，以及 - / • 项目符号
+    private static func stripVariantNumbering(_ line: String) -> String {
+        var s = line.trimmingCharacters(in: .whitespaces)
+        if let range = s.range(
+            of: #"^(\d+[.、)）]|[①②③④⑤⑥⑦⑧⑨⑩]|[一二三四五六七八九十]+[、.．]|[（(]\d+[）)])\s*"#,
+            options: .regularExpression
+        ) {
+            s = String(s[range.upperBound...])
+        }
+        if s.hasPrefix("- ") {
+            s = String(s.dropFirst(2))
+        }
+        if s.hasPrefix("• ") {
+            s = String(s.dropFirst(2))
+        }
+        return s
+    }
 }

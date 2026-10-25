@@ -84,3 +84,57 @@ final class FavoritesStore: ObservableObject {
         Lexicon.entries.filter { words.contains($0.word) }
     }
 }
+
+// MARK: - 句子收藏（每句独立收藏，UserDefaults 持久化）
+
+/// 一句被收藏的句子：词条里的古诗句、生动表达，或 AI 改写/生成的句子都可收藏。
+/// 同一句话只存一条（按文本去重）；若同一句话从不同来源再次收藏，保留第一次的来源。
+struct SentenceFavorite: Codable, Hashable, Identifiable {
+    let text: String
+    let source: String
+
+    var id: String { text }
+}
+
+final class SentenceFavoritesStore: ObservableObject {
+    static let shared = SentenceFavoritesStore()
+
+    private let key = "favoriteSentences"
+
+    @Published private(set) var sentences: [SentenceFavorite] = []
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([SentenceFavorite].self, from: data) {
+            sentences = decoded
+        }
+    }
+
+    func isFavorite(_ text: String) -> Bool {
+        sentences.contains { $0.text == text }
+    }
+
+    func add(_ text: String, source: String) {
+        guard !isFavorite(text) else { return }
+        sentences.append(SentenceFavorite(text: text, source: source))
+        save()
+    }
+
+    func remove(_ text: String) {
+        guard let index = sentences.firstIndex(where: { $0.text == text }) else { return }
+        sentences.remove(at: index)
+        save()
+    }
+
+    func toggle(_ text: String, source: String) {
+        if isFavorite(text) {
+            remove(text)
+        } else {
+            add(text, source: source)
+        }
+    }
+
+    private func save() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(sentences), forKey: key)
+    }
+}

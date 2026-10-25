@@ -40,6 +40,24 @@ struct CopyButton: View {
     }
 }
 
+// MARK: - 句子收藏按钮（每句独立收藏，点亮即收藏、再点即取消）
+
+struct SentenceStarButton: View {
+    let text: String
+    let source: String
+
+    @EnvironmentObject private var sentenceFavorites: SentenceFavoritesStore
+
+    var body: some View {
+        Button {
+            sentenceFavorites.toggle(text, source: source)
+        } label: {
+            Image(systemName: sentenceFavorites.isFavorite(text) ? "star.fill" : "star")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
 // MARK: - 搜索页（含 AI 兜底：离线词库没有的词可调用用户配置的接口生成）
 
 struct SearchView: View {
@@ -177,6 +195,16 @@ struct EntryDetailView: View {
 
     @EnvironmentObject private var favorites: FavoritesStore
 
+    /// 句子收藏的来源标注：内置词条按“出自「词」· 古诗句 / 生动表达”，
+    /// AI 现场生成的词条统一标为“AI 生成”（词条顶部已有“由 AI 现场生成”提示）。
+    private var poemSource: String {
+        isGenerated ? "AI 生成" : "出自「\(entry.word)」· 古诗句"
+    }
+
+    private var expressionSource: String {
+        isGenerated ? "AI 生成" : "出自「\(entry.word)」· 生动表达"
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -218,6 +246,7 @@ struct EntryDetailView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
+                            SentenceStarButton(text: poem.text, source: poemSource)
                             CopyButton(text: poem.text)
                         }
                         Divider()
@@ -232,6 +261,7 @@ struct EntryDetailView: View {
                             Text(line)
                                 .font(.body)
                             Spacer()
+                            SentenceStarButton(text: line, source: expressionSource)
                             CopyButton(text: line)
                         }
                         Divider()
@@ -250,20 +280,44 @@ struct EntryDetailView: View {
 
 struct FavoritesView: View {
     @EnvironmentObject private var favorites: FavoritesStore
+    @EnvironmentObject private var sentenceFavorites: SentenceFavoritesStore
 
     var body: some View {
         NavigationStack {
-            List(favorites.favoriteEntries) { entry in
-                NavigationLink(entry.word, destination: EntryDetailView(entry: entry))
+            List {
+                if !favorites.favoriteEntries.isEmpty {
+                    Section("词条") {
+                        ForEach(favorites.favoriteEntries) { entry in
+                            NavigationLink(entry.word, destination: EntryDetailView(entry: entry))
+                        }
+                    }
+                }
+                if !sentenceFavorites.sentences.isEmpty {
+                    Section("句子") {
+                        ForEach(sentenceFavorites.sentences) { favorite in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(alignment: .top) {
+                                    Text(favorite.text)
+                                    Spacer()
+                                    SentenceStarButton(text: favorite.text, source: favorite.source)
+                                    CopyButton(text: favorite.text)
+                                }
+                                Text(favorite.source)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
             }
             .safeAreaPadding(.bottom, 96)
             .navigationTitle("收藏")
             .overlay {
-                if favorites.favoriteEntries.isEmpty {
+                if favorites.favoriteEntries.isEmpty && sentenceFavorites.sentences.isEmpty {
                     ContentUnavailableView(
                         "还没有收藏",
                         systemImage: "star",
-                        description: Text("在词条详情里点亮星星，就会出现在这里")
+                        description: Text("在词条详情里点亮星星，或在任意句子旁点亮星星，就会出现在这里")
                     )
                 }
             }
