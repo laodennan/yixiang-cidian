@@ -10,6 +10,31 @@ struct PoemLine: Codable, Hashable, Identifiable {
     var id: String { author + "《" + source + "》" + text }
 }
 
+/// 容错解码放在 extension 里（不影响 memberwise 初始化）：
+/// 模型偶尔漏写作者或篇名时按空字符串处理，不丢整句
+extension PoemLine {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        author = try container.decodeIfPresent(String.self, forKey: .author) ?? ""
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case text, author, source
+    }
+
+    /// 出处文案：作者篇名都缺时为空，调用方据此决定是否显示
+    var attribution: String {
+        switch (author.isEmpty, source.isEmpty) {
+        case (true, true): return ""
+        case (false, true): return author
+        case (true, false): return "《\(source)》"
+        case (false, false): return "\(author) · 《\(source)》"
+        }
+    }
+}
+
 struct LexiconEntry: Codable, Hashable, Identifiable {
     let word: String
     let category: String
@@ -17,6 +42,22 @@ struct LexiconEntry: Codable, Hashable, Identifiable {
     let expressions: [String]
 
     var id: String { word }
+}
+
+/// 容错解码放在 extension 里（不影响 memberwise 初始化）：
+/// 模型偶尔漏写字段时按空值处理，不丢整条
+extension LexiconEntry {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        word = try container.decodeIfPresent(String.self, forKey: .word) ?? ""
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+        poems = try container.decodeIfPresent([PoemLine].self, forKey: .poems) ?? []
+        expressions = try container.decodeIfPresent([String].self, forKey: .expressions) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case word, category, poems, expressions
+    }
 }
 
 struct LexiconFile: Codable {

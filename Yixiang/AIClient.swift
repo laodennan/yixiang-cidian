@@ -7,8 +7,9 @@ enum AISettings {
     private static let apiKeyKey = "aiAPIKey"
     private static let modelKey = "aiModel"
 
-    static let defaultBaseURL = "https://api.openai.com/v1"
-    static let defaultModel = "gpt-4o-mini"
+    /// 默认接口为通义千问（阿里云百炼）：模板内置，Key 由使用者自己填
+    static let defaultBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    static let defaultModel = "qwen-turbo"
 
     static var baseURL: String {
         UserDefaults.standard.string(forKey: baseURLKey) ?? defaultBaseURL
@@ -159,9 +160,21 @@ enum AIClient {
         }
 
         guard let data = text.data(using: .utf8),
-              let entry = try? JSONDecoder().decode(LexiconEntry.self, from: data),
-              !entry.poems.isEmpty, !entry.expressions.isEmpty
+              let decoded = try? JSONDecoder().decode(LexiconEntry.self, from: data)
         else {
+            throw AIError.invalidResponse
+        }
+        // 容错：过滤诗句文本为空的条目；词名缺失时用查询词补；
+        // 古诗或生动表达有一边有内容即接受（原来要求两边都非空，
+        // 模型稍有缺失就整条丢弃，是“你好”两次解析失败的根因）
+        let poems = decoded.poems.filter { !$0.text.isEmpty }
+        let entry = LexiconEntry(
+            word: decoded.word.isEmpty ? word : decoded.word,
+            category: decoded.category,
+            poems: poems,
+            expressions: decoded.expressions
+        )
+        guard !entry.poems.isEmpty || !entry.expressions.isEmpty else {
             throw AIError.invalidResponse
         }
         return entry

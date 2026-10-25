@@ -305,9 +305,9 @@ struct LogView: View {
 // MARK: - 接口设置页（密钥只存本机）
 
 struct SettingsView: View {
-    @AppStorage("aiBaseURL") private var baseURL = "https://api.openai.com/v1"
+    @AppStorage("aiBaseURL") private var baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     @AppStorage("aiAPIKey") private var apiKey = ""
-    @AppStorage("aiModel") private var model = "gpt-4o-mini"
+    @AppStorage("aiModel") private var model = "qwen-turbo"
     @ObservedObject private var webCache = WebSearchCache.shared
     @ObservedObject private var appLog = AppLog.shared
 
@@ -333,7 +333,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Text("API Key 只保存在本机，不会上传到任何服务器（除你配置的接口外）。默认接口为 OpenAI，也可改为 DeepSeek、通义千问等任何 OpenAI 兼容接口，只需修改 Base URL 和模型名。")
+                    Text("API Key 只保存在本机，不会上传到任何服务器（除你配置的接口外）。默认接口为通义千问（阿里云百炼），只需填写自己的 API Key；也可改为 OpenAI、DeepSeek 等任何 OpenAI 兼容接口，只需修改 Base URL 和模型名。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -379,8 +379,8 @@ struct SettingsView: View {
 
                 Section {
                     Button("恢复默认") {
-                        baseURL = "https://api.openai.com/v1"
-                        model = "gpt-4o-mini"
+                        baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                        model = "qwen-turbo"
                     }
                 }
             }

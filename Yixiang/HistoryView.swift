@@ -71,7 +71,7 @@ final class HistoryStore: ObservableObject {
     }
 
     func addGenerated(word: String, poems: [PoemLine], expressions: [String]) {
-        let results = poems.map { "\($0.text) —— \($0.author)·《\($0.source)》" } + expressions
+        let results = poems.map { $0.attribution.isEmpty ? $0.text : "\($0.text) —— \($0.attribution)" } + expressions
         guard !results.isEmpty else { return }
         add(HistoryEntry(kind: "AI 生成词条", input: word, detail: "为「\(word)」生成的词条", results: results))
     }

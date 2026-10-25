@@ -297,8 +297,10 @@ struct SearchView: View {
                             }
 
                             // 维基百科（免费接口，无需 Key；结果自动缓存到本机）
-                            // 输入停稳后自动显示，旁边小备注说明来源
-                            VStack(alignment: .leading, spacing: 12) {
+                            // 输入停稳后自动显示，旁边小备注说明来源；
+                            // 只对纯中文词触发，拼音半成品不自动查
+                            if isPureCJKQuery {
+                                VStack(alignment: .leading, spacing: 12) {
                                 Text("维基百科")
                                     .font(.headline)
                                 Text("以下为维基百科的公开词条摘要，仅供参考")
@@ -366,9 +368,11 @@ struct SearchView: View {
                                                 HStack(alignment: .top) {
                                                     VStack(alignment: .leading, spacing: 2) {
                                                         Text(poem.text)
-                                                        Text("\(poem.author) · 《\(poem.source)》")
-                                                            .font(.caption)
-                                                            .foregroundStyle(.secondary)
+                                                        if !poem.attribution.isEmpty {
+                                                            Text(poem.attribution)
+                                                                .font(.caption)
+                                                                .foregroundStyle(.secondary)
+                                                        }
                                                     }
                                                     Spacer()
                                                     SentenceStarButton(text: poem.text, source: "AI 生成")
@@ -418,6 +422,7 @@ struct SearchView: View {
                                     .font(.callout)
                                 } else {
                                     ProgressView("正在准备…")
+                                }
                                 }
                             }
                         }
@@ -481,9 +486,31 @@ struct SearchView: View {
         }
     }
 
+    /// 是否纯中文词：含汉字且不含 ASCII 字母。拼音半成品（如 hao、灏ha）
+    /// 不自动联网/AI，避免无用请求刷屏（1.7 日志教训）。
+    static func isPureCJK(_ word: String) -> Bool {
+        guard PinyinKey.containsCJK(word) else { return false }
+        return !word.unicodeScalars.contains { scalar in
+            (scalar.value >= 65 && scalar.value <= 90) || (scalar.value >= 97 && scalar.value <= 122)
+        }
+    }
+
+    private var isPureCJKQuery: Bool {
+        Self.isPureCJK(trimmedQuery)
+    }
+
+    /// 取消不算失败：用户继续打字导致旧任务取消时，不显示红字、不记失败日志
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError { return urlError.code == .cancelled }
+        if case let AIError.underlying(inner) = error { return isCancellation(inner) }
+        return false
+    }
+
     /// 自动搜索：词库里已有结果时不需要（空结果页根本不显示）；
     /// 否则维基百科与 AI 生成并行跑一次，结果直接显示在当前页。
     private func autoSearch(word: String) async {
+        guard Self.isPureCJK(word) else { return }
         let base = Lexicon.search(word)
         let mine = customLexicon.words.filter { $0.word.contains(word) && !base.contains($0) }
         guard base.isEmpty && mine.isEmpty else { return }
@@ -508,6 +535,8 @@ struct SearchView: View {
             let ms = Int(Date().timeIntervalSince(start) * 1000)
             AppLog.log(tag: "AI生成", "「\(word)」生成成功，耗时 \(ms)ms")
         } catch {
+            // 取消不算失败：用户继续打字导致旧任务取消时不显示红字、不记日志
+            if isCancellation(error) { return }
             autoAIError = (error as? AIError)?.errorDescription ?? "生成失败，请重试"
             AppLog.log(tag: "AI生成失败", "「\(word)」\(autoAIError)")
         }
@@ -540,6 +569,8 @@ struct SearchView: View {
             webError = "维基百科上没有「\(word)」的词条"
             AppLog.log(tag: "联网", "维基百科「\(word)」无词条")
         } catch {
+            // 取消不算失败：用户继续打字导致旧任务取消时不显示红字、不记日志
+            if isCancellation(error) { return }
             webSummary = nil
             webError = "联网搜索失败，请检查网络后重试"
             AppLog.log(tag: "联网失败", "维基百科「\(word)」\(error.localizedDescription)")
@@ -691,9 +722,11 @@ struct EntryDetailView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(poem.text)
                                     .font(.body)
-                                Text("\(poem.author) · 《\(poem.source)》")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                if !poem.attribution.isEmpty {
+                                    Text(poem.attribution)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             Spacer()
                             SentenceStarButton(text: poem.text, source: poemSource)
