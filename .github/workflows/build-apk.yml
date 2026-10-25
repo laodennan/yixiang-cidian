@@ -20,8 +20,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # NOTE: do NOT use android-actions/setup-android here — it tries to install
+      # the obsolete "tools" package that Google removed, which fails the build.
+      # GitHub-hosted ubuntu runners already ship an Android SDK (ANDROID_HOME
+      # is preset with cmdline-tools, platform-tools, build-tools and platforms),
+      # so Gradle finds it automatically.
+      - name: Confirm preinstalled Android SDK
+        run: echo "ANDROID_HOME=$ANDROID_HOME" && ls "$ANDROID_HOME"
 
       - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v3
