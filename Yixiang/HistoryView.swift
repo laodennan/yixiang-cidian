@@ -279,6 +279,7 @@ struct HistoryDetailView: View {
                             Spacer()
                             AddToLexiconButton(text: line, source: "历史·\(entry.input)")
                             SentenceStarButton(text: line, source: "历史·\(entry.input)")
+                            MaterialBookmarkButton(text: line, source: "历史·\(entry.input)")
                             CopyButton(text: line)
                         }
                         Divider()

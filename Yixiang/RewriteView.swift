@@ -26,6 +26,63 @@ enum RewriteMode: String, CaseIterable {
     case paragraph = "成段"
 }
 
+// MARK: - 改写页分段：改写 / 对话 / 检查
+
+enum RewriteSection: String, CaseIterable {
+    case rewrite = "改写"
+    case dialogue = "对话"
+    case check = "检查"
+}
+
+// MARK: - 改写模式 6 档：可与单句/成段、风格三档叠加使用
+
+enum RewritePolishMode: String, CaseIterable {
+    case dedup = "去重复"
+    case depattern = "去套路"
+    case action = "加强动作"
+    case emotion = "加强情绪"
+    case webnovel = "网文润色"
+    case concise = "精简废话"
+
+    var polishSentence: String {
+        switch self {
+        case .dedup:
+            return "改写模式要求（去重复）：删掉重复啰嗦的表达，但保留原意。"
+        case .depattern:
+            return "改写模式要求（去套路）：去掉常见网文套话，换更新鲜的说法。"
+        case .action:
+            return "改写模式要求（加强动作）：多写具体动作，少写概括。"
+        case .emotion:
+            return "改写模式要求（加强情绪）：把情绪写进动作和细节里，而不是直说情绪词。"
+        case .webnovel:
+            return "改写模式要求（网文润色）：按网文节奏润色，句子更短、更有力。"
+        case .concise:
+            return "改写模式要求（精简废话）：压缩到原来一半左右长度，只留有效信息。"
+        }
+    }
+}
+
+// MARK: - 对话助手：4 档情绪演绎 + 对话前后细节
+
+enum DialogueEmotion: String, CaseIterable {
+    case calm = "冷静克制"
+    case angry = "愤怒质问"
+    case disappointed = "失望隐忍"
+    case calmOutsideBrokenInside = "表面平静内心崩溃"
+}
+
+struct DialogueDelivery: Codable, Hashable {
+    let style: String
+    let line: String
+}
+
+struct DialogueResult: Codable {
+    let deliveries: [DialogueDelivery]
+    let beforeAction: String
+    let afterReaction: String
+    let silenceDetail: String
+}
+
 // MARK: - AI 改写页：用大白话描述，得到优美的形容（接口调用走共享 AIClient，配置见设置页）
 
 struct RewriteView: View {
@@ -42,6 +99,17 @@ struct RewriteView: View {
     @State private var errorMessage = ""
     @State private var isLoading = false
     @State private var showingSettings = false
+    @State private var section: RewriteSection = .rewrite
+    @State private var polishMode: RewritePolishMode = .dedup
+    @State private var originalText = ""
+    @State private var dialogueLine = ""
+    @State private var dialogueCharacter = ""
+    @State private var dialogueEmotion: DialogueEmotion = .calm
+    @State private var dialogueResult: DialogueResult?
+    @State private var dialogueError = ""
+    @State private var dialogueLoading = false
+    @State private var checkInput = ""
+    @State private var checkResult: RepetitionCheck.Result?
     @FocusState private var inputFocused: Bool
 
     private var trimmedInput: String {
@@ -52,8 +120,16 @@ struct RewriteView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("用大白话描述，得到优美的形容")
-                        .font(.headline)
+                    Picker("分段", selection: $section) {
+                        ForEach(RewriteSection.allCases, id: \.self) { item in
+                            Text(item.rawValue).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if section == .rewrite {
+                        Text("用大白话描述，得到优美的形容")
+                            .font(.headline)
 
                     TextField("用平时说话的方式描述，比如：他这个人冷冷的，不爱搭理人", text: $input, axis: .vertical)
                         .lineLimit(3...8)
@@ -77,6 +153,16 @@ struct RewriteView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+
+                    Picker("改写模式", selection: $polishMode) {
+                        ForEach(RewritePolishMode.allCases, id: \.self) { item in
+                            Text(item.rawValue).tag(item)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    Text("改写模式可与单句/成段、风格叠加使用")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     if mode == .paragraph {
                         VStack(alignment: .leading, spacing: 4) {
@@ -132,6 +218,16 @@ struct RewriteView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("形容结果")
                                 .font(.headline)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("原文")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                Text(originalText)
+                                Button("恢复原文") {
+                                    input = originalText
+                                }
+                                .buttonStyle(.bordered)
+                            }
                             ForEach(Array(versions.enumerated()), id: \.offset) { _, version in
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text(version)
@@ -139,6 +235,7 @@ struct RewriteView: View {
                                         Spacer()
                                         AddToLexiconButton(text: version, source: "AI 改写")
                                         SentenceStarButton(text: version, source: "AI 改写")
+                                        MaterialBookmarkButton(text: version, source: "AI 改写")
                                         CopyButton(text: version)
                                     }
                                 }
@@ -154,17 +251,169 @@ struct RewriteView: View {
                             Text("成段结果（约 \(paragraphText.count) 字）")
                                 .font(.headline)
                             VStack(alignment: .leading, spacing: 8) {
+                                Text("原文")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                Text(originalText)
+                                Button("恢复原文") {
+                                    input = originalText
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            VStack(alignment: .leading, spacing: 8) {
                                 Text(paragraphText)
                                 HStack {
                                     Spacer()
                                     AddToLexiconButton(text: paragraphText, source: "AI 改写·成段")
                                     SentenceStarButton(text: paragraphText, source: "AI 改写·成段")
+                                    MaterialBookmarkButton(text: paragraphText, source: "AI 改写·成段")
                                     CopyButton(text: paragraphText)
                                 }
                             }
                             .padding()
                             .background(Color.secondary.opacity(0.1))
                             .cornerRadius(12)
+                        }
+                    }
+                    }
+
+                    if section == .dialogue {
+                        Text("输入一句台词，得到不同情绪下的演绎")
+                            .font(.headline)
+                        TextField("台词（必填），比如：你到底想怎么样", text: $dialogueLine, axis: .vertical)
+                            .lineLimit(2...6)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("人物性格（可选，如内向隐忍）", text: $dialogueCharacter)
+                            .textFieldStyle(.roundedBorder)
+                        Picker("情绪", selection: $dialogueEmotion) {
+                            ForEach(DialogueEmotion.allCases, id: \.self) { item in
+                                Text(item.rawValue).tag(item)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        Button {
+                            Task { await generateDialogue() }
+                        } label: {
+                            if dialogueLoading {
+                                ProgressView()
+                            } else {
+                                Text("生成演绎")
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(dialogueLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || dialogueLoading)
+
+                        if !dialogueError.isEmpty {
+                            Text(dialogueError)
+                                .foregroundStyle(.red)
+                                .font(.callout)
+                        }
+
+                        if let result = dialogueResult {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("情绪演绎")
+                                    .font(.headline)
+                                ForEach(Array(result.deliveries.enumerated()), id: \.offset) { _, delivery in
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(delivery.style)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                        Text(delivery.line)
+                                        HStack {
+                                            Spacer()
+                                            SentenceStarButton(text: delivery.line, source: "对话·\(delivery.style)")
+                                            MaterialBookmarkButton(text: delivery.line, source: "对话·\(delivery.style)")
+                                            CopyButton(text: delivery.line)
+                                        }
+                                    }
+                                    .padding()
+                                    .background(Color.secondary.opacity(0.1))
+                                    .cornerRadius(12)
+                                }
+                                if !result.beforeAction.isEmpty {
+                                    dialogueDetailRow(title: "对话前动作", text: result.beforeAction)
+                                }
+                                if !result.afterReaction.isEmpty {
+                                    dialogueDetailRow(title: "说完后反应", text: result.afterReaction)
+                                }
+                                if !result.silenceDetail.isEmpty {
+                                    dialogueDetailRow(title: "沉默细节", text: result.silenceDetail)
+                                }
+                            }
+                        }
+                    }
+
+                    if section == .check {
+                        Text("粘贴长文，检查疑似重复的表达")
+                            .font(.headline)
+                        Text("完全离线，不用 Key；启发式检查，只能看出疑似重复")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        TextField("粘贴要检查的长文", text: $checkInput, axis: .vertical)
+                            .lineLimit(8...20)
+                            .textFieldStyle(.roundedBorder)
+                        Button("检查") {
+                            checkResult = RepetitionCheck.analyze(checkInput)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(checkInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                        if let result = checkResult {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("以下为疑似重复，最终由作者定夺")
+                                    .font(.headline)
+                                DisclosureGroup("高频 2 字词（出现 ≥3 次）") {
+                                    if result.frequentWords.isEmpty {
+                                        Text("没有出现 ≥3 次的 2 字词")
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        ForEach(Array(result.frequentWords.enumerated()), id: \.offset) { _, item in
+                                            HStack {
+                                                Text(item.word)
+                                                Spacer()
+                                                Text("\(item.count) 次")
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    }
+                                }
+                                DisclosureGroup("重复句首（相同前 2 字开头 ≥3 句）") {
+                                    if result.repeatedOpenings.isEmpty {
+                                        Text("没有重复的句首")
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        ForEach(Array(result.repeatedOpenings.enumerated()), id: \.offset) { _, group in
+                                            DisclosureGroup("“\(group.opening)”开头 · \(group.sentences.count) 句") {
+                                                ForEach(group.sentences, id: \.self) { sentence in
+                                                    Text(sentence)
+                                                        .font(.callout)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("形容词密度")
+                                        .font(.headline)
+                                    Text("命中 \(result.adjectiveHits) 次 / 全文 \(result.totalChars) 字，密度 \(String(format: "%.1f", result.adjectiveDensity))%\(result.adjectiveDensity > 8 ? "（偏高）" : "")")
+                                }
+                                DisclosureGroup("相邻段落意思相近（字符集合相似度 ≥0.6）") {
+                                    if result.similarParagraphs.isEmpty {
+                                        Text("没有意思相近的相邻段落")
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        ForEach(Array(result.similarParagraphs.enumerated()), id: \.offset) { _, pair in
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text("第 \(pair.first) 段与第 \(pair.second) 段，相似度 \(String(format: "%.0f", pair.similarity * 100))%")
+                                                Text(pair.preview)
+                                                    .font(.callout)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -197,10 +446,13 @@ struct RewriteView: View {
 
         let sentence = trimmedInput
         guard !sentence.isEmpty else { return }
+        // 原文对照：记下这次生成时的输入，恢复原文按钮用它
+        originalText = sentence
 
         // 核心任务：口语描述 → 文学形容。输入是通俗口语，输出必须精准、具体、有意境、优美。
         var system = "你是一位擅长中文文学表达的助手。用户输入的是通俗口语——他用平时说话的方式描述一个意思，不需要先想好文绉绉的句子。你的任务是把这段口语描述翻译成精准、具体、有意境、优美的文学形容：精准指贴合原意、不跑题；具体指必须写出可感知的细节，如神情、动作、环境、五感、恰当的比喻，必要时化用古典意象；有意境、优美指读起来像一句值得写进文章里的好句子。禁止只做同义词替换，禁止空洞抒情；意思不能改变，只能丰富细节。"
         system += selectedStyle.styleSentence
+        system += polishMode.polishSentence
         let hintText = hint.trimmingCharacters(in: .whitespacesAndNewlines)
         if !hintText.isEmpty {
             system += "可围绕「\(hintText)」这一意象展开。"
@@ -216,7 +468,7 @@ struct RewriteView: View {
                 paragraphText = text
                 history.addRewrite(
                     input: sentence,
-                    detail: "\(selectedStyle.rawValue)·成段·约 \(Int(targetWords)) 字",
+                    detail: "\(selectedStyle.rawValue)·\(polishMode.rawValue)·成段·约 \(Int(targetWords)) 字",
                     results: [text]
                 )
             } else {
@@ -227,7 +479,7 @@ struct RewriteView: View {
                 } else {
                     history.addRewrite(
                         input: sentence,
-                        detail: "\(selectedStyle.rawValue)·单句·3 个版本",
+                        detail: "\(selectedStyle.rawValue)·\(polishMode.rawValue)·单句·3 个版本",
                         results: versions
                     )
                 }
@@ -235,6 +487,189 @@ struct RewriteView: View {
         } catch {
             errorMessage = (error as? AIError)?.errorDescription ?? "请求失败，请检查网络和接口配置"
         }
+    }
+
+    private func generateDialogue() async {
+        dialogueError = ""
+        dialogueResult = nil
+        let line = dialogueLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty else { return }
+        let character = dialogueCharacter.trimmingCharacters(in: .whitespacesAndNewlines)
+        var system = "你是一位擅长人物对话描写的助手。用户给一句台词，你只返回一个 JSON 对象，格式固定为：{\"deliveries\":[{\"style\":\"情绪档\",\"line\":\"台词\"}],\"beforeAction\":\"对话前动作\",\"afterReaction\":\"说完后反应\",\"silenceDetail\":\"沉默细节\"}。要求：deliveries 恰好 4 条，情绪档依次为冷静克制、愤怒质问、失望隐忍、表面平静内心崩溃，每条是同一句台词在该情绪下的演绎；对话前动作、说完后反应、沉默细节各写一句具体细节。不要解释，不要加代码围栏。"
+        if !character.isEmpty {
+            system += "人物性格：\(character)。"
+        }
+        system += "人物当前情绪：\(dialogueEmotion.rawValue)。"
+        dialogueLoading = true
+        defer { dialogueLoading = false }
+        do {
+            let raw = try await AIClient.chat(system: system, user: line)
+            let result = parseDialogue(raw)
+            dialogueResult = result
+            var results: [String] = result.deliveries.map { "\($0.style)：\($0.line)" }
+            if !result.beforeAction.isEmpty {
+                results.append("对话前动作：\(result.beforeAction)")
+            }
+            if !result.afterReaction.isEmpty {
+                results.append("说完后反应：\(result.afterReaction)")
+            }
+            if !result.silenceDetail.isEmpty {
+                results.append("沉默细节：\(result.silenceDetail)")
+            }
+            history.addRewrite(input: line, detail: "对话·\(dialogueEmotion.rawValue)", results: results)
+        } catch {
+            dialogueError = (error as? AIError)?.errorDescription ?? "请求失败，请检查网络和接口配置"
+        }
+    }
+
+    /// 对话 JSON 解析：失败时把原始文本整体显示为一个版本
+    private func parseDialogue(_ raw: String) -> DialogueResult {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```") {
+            if let firstNewline = text.firstIndex(of: "\n") {
+                text = String(text[text.index(after: firstNewline)...])
+            }
+            if text.hasSuffix("```") {
+                text = String(text.dropLast(3))
+            }
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let data = text.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(DialogueResult.self, from: data) {
+            return decoded
+        }
+        return DialogueResult(deliveries: [DialogueDelivery(style: "原文", line: text)], beforeAction: "", afterReaction: "", silenceDetail: "")
+    }
+
+    private func dialogueDetailRow(title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(text)
+            HStack {
+                Spacer()
+                SentenceStarButton(text: text, source: "对话·\(title)")
+                MaterialBookmarkButton(text: text, source: "对话·\(title)")
+                CopyButton(text: text)
+            }
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.1))
+        .cornerRadius(12)
+    }
+}
+
+// MARK: - 重复表达检查器：纯启发式、完全离线（App 里没有中文分词器）
+
+enum RepetitionCheck {
+    struct Result {
+        let totalChars: Int
+        let frequentWords: [(word: String, count: Int)]
+        let repeatedOpenings: [(opening: String, sentences: [String])]
+        let adjectiveHits: Int
+        let adjectiveDensity: Double
+        let similarParagraphs: [(first: Int, second: Int, similarity: Double, preview: String)]
+    }
+
+    /// 功能字：含这些字的 2 字组合不统计（虚词组合没有意义）
+    private static let functionChars: Set<Character> = ["的", "了", "在", "是", "有", "和", "就", "都", "也", "不", "还", "这", "那", "他", "她", "它", "我", "你", "您", "们", "个", "上", "下", "中", "大", "小"]
+
+    private static let adjectives: [String] = ["美丽", "漂亮", "微微", "轻轻", "缓缓", "突然", "非常", "十分", "特别", "明亮", "昏暗", "安静", "热闹", "孤独", "紧张", "疲惫", "坚定", "犹豫", "温柔", "冰冷", "火热", "巨大", "渺小", "迅速", "缓慢", "悄悄", "默默", "深深", "淡淡", "浓浓", "远远", "高高", "低低", "甜甜", "苦苦", "重重", "急急", "慢慢", "偷偷", "静静", "空空", "满满", "柔柔", "硬硬", "冷冷", "暖暖", "喜悦", "悲伤", "愤怒", "恐惧", "惊讶", "好奇", "害羞", "自豪", "失望", "满足", "空虚", "充实", "华丽", "朴素", "优雅", "粗糙", "细腻", "清晰", "模糊", "遥远", "亲近", "陌生", "熟悉"]
+
+    private static func isCJK(_ ch: Character) -> Bool {
+        guard let scalar = ch.unicodeScalars.first else { return false }
+        return (0x4E00...0x9FFF).contains(scalar.value) || (0x3400...0x4DBF).contains(scalar.value)
+    }
+
+    static func analyze(_ text: String) -> Result {
+        let chars = Array(text)
+
+        // (a) 高频 2 字词：所有汉字 2 字窗口，含功能字的组合排除，出现 ≥3 次的列出
+        var counts: [String: Int] = [:]
+        if chars.count >= 2 {
+            for i in 0..<(chars.count - 1) {
+                let a = chars[i]
+                let b = chars[i + 1]
+                guard isCJK(a), isCJK(b) else { continue }
+                if functionChars.contains(a) || functionChars.contains(b) { continue }
+                counts[String([a, b]), default: 0] += 1
+            }
+        }
+        let frequent = counts
+            .filter { $0.value >= 3 }
+            .sorted { $0.value > $1.value }
+            .map { (word: $0.key, count: $0.value) }
+
+        // (b) 重复句首：按 。！？；切分句子，相同前 2 字开头的句子 ≥3 句的列出
+        let separators: Set<Character> = ["。", "！", "？", "；"]
+        var sentences: [String] = []
+        var current = ""
+        for ch in text {
+            current.append(ch)
+            if separators.contains(ch) {
+                let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    sentences.append(trimmed)
+                }
+                current = ""
+            }
+        }
+        let tail = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty {
+            sentences.append(tail)
+        }
+        var openingGroups: [String: [String]] = [:]
+        for sentence in sentences {
+            let stripped = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard stripped.count >= 2 else { continue }
+            let opening = String(stripped.prefix(2))
+            openingGroups[opening, default: []].append(sentence)
+        }
+        let repeated = openingGroups
+            .filter { $0.value.count >= 3 }
+            .sorted { $0.value.count > $1.value.count }
+            .map { (opening: $0.key, sentences: $0.value) }
+
+        // (c) 形容词密度：内置形容词表命中数 / 全文总字数（去空白）
+        var hits = 0
+        for adjective in adjectives {
+            var searchFrom = text.startIndex
+            while let range = text.range(of: adjective, range: searchFrom..<text.endIndex) {
+                hits += 1
+                searchFrom = range.upperBound
+            }
+        }
+        let total = text.filter { !$0.isWhitespace }.count
+        let density = total > 0 ? Double(hits) / Double(total) * 100 : 0
+
+        // (d) 相邻段落意思相近：按换行分段，相邻两段按字符集合 Jaccard 相似度 ≥0.6 的列出
+        let paragraphs = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var similar: [(first: Int, second: Int, similarity: Double, preview: String)] = []
+        if paragraphs.count >= 2 {
+            for i in 0..<(paragraphs.count - 1) {
+                let a = Set(paragraphs[i])
+                let b = Set(paragraphs[i + 1])
+                let union = a.union(b).count
+                guard union > 0 else { continue }
+                let similarity = Double(a.intersection(b).count) / Double(union)
+                if similarity >= 0.6 {
+                    similar.append((first: i + 1, second: i + 2, similarity: similarity, preview: String(paragraphs[i].prefix(30))))
+                }
+            }
+        }
+
+        return Result(
+            totalChars: total,
+            frequentWords: frequent,
+            repeatedOpenings: repeated,
+            adjectiveHits: hits,
+            adjectiveDensity: density,
+            similarParagraphs: similar
+        )
     }
 }
 
@@ -308,6 +743,7 @@ struct SettingsView: View {
     @AppStorage("aiBaseURL") private var baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     @AppStorage("aiAPIKey") private var apiKey = ""
     @AppStorage("aiModel") private var model = "qwen-turbo"
+    @AppStorage("webSearchEnabled") private var webSearchEnabled = false
     @ObservedObject private var webCache = WebSearchCache.shared
     @ObservedObject private var appLog = AppLog.shared
 
@@ -330,6 +766,13 @@ struct SettingsView: View {
                     TextField("模型名", text: $model)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                }
+
+                Section("维基百科搜索") {
+                    Toggle("维基百科搜索", isOn: $webSearchEnabled)
+                    Text("默认关闭；打开后，词典搜索页会显示维基百科摘要。维基百科在部分网络下无法直连")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section {

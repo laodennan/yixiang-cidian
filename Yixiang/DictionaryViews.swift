@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - 主界面（五个 Tab：分类浏览已收进词典页顶部）
 
@@ -23,6 +24,9 @@ struct ContentView: View {
             FavoritesView()
                 .tabItem { Label("收藏", systemImage: "star") }
                 .tag(4)
+            MaterialBookView()
+                .tabItem { Label("素材本", systemImage: "bookmark") }
+                .tag(5)
         }
     }
 }
@@ -99,6 +103,7 @@ struct SearchView: View {
     @ObservedObject private var dictStore = DictionaryStore.shared
     @ObservedObject private var webCache = WebSearchCache.shared
 
+    @AppStorage("webSearchEnabled") private var webSearchEnabled = false
     @State private var query = ""
     @State private var showingSettings = false
     @State private var expandedCategories: Set<String> = []
@@ -190,7 +195,27 @@ struct SearchView: View {
                             }
                         }
                     }
+                    // 场景灵感库入口：放在 12 分类折叠下方
+                    NavigationLink(destination: SceneListView()) {
+                        HStack {
+                            Text("场景灵感库")
+                            Spacer()
+                            Text("\(SceneLibrary.entries.count) 个场景")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 } else {
+                    // 搜索命中场景词时，在结果区上方加一个“场景灵感”小节
+                    if let scene = SceneLibrary.entry(for: trimmedQuery) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("场景灵感")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            NavigationLink(destination: SceneDetailView(scene: scene)) {
+                                Text("“\(scene.keyword)”的灵感：人物表现、环境描写、动作细节与参考句子")
+                            }
+                        }
+                    }
                     ForEach(results) { entry in
                         NavigationLink(destination: EntryDetailView(entry: entry)) {
                             HStack {
@@ -298,8 +323,9 @@ struct SearchView: View {
 
                             // 维基百科（免费接口，无需 Key；结果自动缓存到本机）
                             // 输入停稳后自动显示，旁边小备注说明来源；
-                            // 只对纯中文词触发，拼音半成品不自动查
-                            if isPureCJKQuery {
+                            // 只对纯中文词触发，拼音半成品不自动查；
+                            // 开关在设置页，默认关闭，关闭时整块不显示也不联网
+                            if isPureCJKQuery && webSearchEnabled {
                                 VStack(alignment: .leading, spacing: 12) {
                                 Text("维基百科")
                                     .font(.headline)
@@ -345,9 +371,12 @@ struct SearchView: View {
                                     ProgressView("正在搜索…")
                                 }
                             }
+                            }
 
                             // AI 生成：输入停稳后自动显示在当前页，旁边小备注说明来源
-                            VStack(alignment: .leading, spacing: 12) {
+                            // AI 不受维基开关影响，只受纯中文门禁约束
+                            if isPureCJKQuery {
+                                VStack(alignment: .leading, spacing: 12) {
                                 Text("AI 生成")
                                     .font(.headline)
                                 Text("由 AI 现场生成，仅供参考；古诗句请以原文核对")
@@ -376,6 +405,7 @@ struct SearchView: View {
                                                     }
                                                     Spacer()
                                                     SentenceStarButton(text: poem.text, source: "AI 生成")
+                                                    MaterialBookmarkButton(text: poem.text, source: "AI 生成")
                                                     CopyButton(text: poem.text)
                                                 }
                                             }
@@ -389,6 +419,7 @@ struct SearchView: View {
                                                     Text(line)
                                                     Spacer()
                                                     SentenceStarButton(text: line, source: "AI 生成")
+                                                    MaterialBookmarkButton(text: line, source: "AI 生成")
                                                     CopyButton(text: line)
                                                 }
                                             }
@@ -471,6 +502,12 @@ struct SearchView: View {
                     Task { await autoSearch(word: trimmedQuery) }
                 }
             }
+            .onChange(of: webSearchEnabled) { _, enabled in
+                // 维基开关从关变开、且当前正处在词典空结果页时，为当前词补查一次
+                if enabled, !trimmedQuery.isEmpty, results.isEmpty {
+                    Task { await autoSearch(word: trimmedQuery) }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -509,15 +546,20 @@ struct SearchView: View {
 
     /// 自动搜索：词库里已有结果时不需要（空结果页根本不显示）；
     /// 否则维基百科与 AI 生成并行跑一次，结果直接显示在当前页。
+    /// 维基百科那一路只在设置开关打开时跑，AI 那一路不受开关影响。
     private func autoSearch(word: String) async {
         guard Self.isPureCJK(word) else { return }
         let base = Lexicon.search(word)
         let mine = customLexicon.words.filter { $0.word.contains(word) && !base.contains($0) }
         guard base.isEmpty && mine.isEmpty else { return }
-        async let web: Void = fetchWeb(for: word)
-        async let ai: Void = autoGenerate(for: word)
-        _ = await web
-        _ = await ai
+        if webSearchEnabled {
+            async let web: Void = fetchWeb(for: word)
+            async let ai: Void = autoGenerate(for: word)
+            _ = await web
+            _ = await ai
+        } else {
+            await autoGenerate(for: word)
+        }
     }
 
     /// AI 自动生成：无 Key 时不调用接口，只显示去设置提示
@@ -730,6 +772,7 @@ struct EntryDetailView: View {
                             }
                             Spacer()
                             SentenceStarButton(text: poem.text, source: poemSource)
+                            MaterialBookmarkButton(text: poem.text, source: poemSource)
                             CopyButton(text: poem.text)
                         }
                         Divider()
@@ -745,17 +788,228 @@ struct EntryDetailView: View {
                                 .font(.body)
                             Spacer()
                             SentenceStarButton(text: line, source: expressionSource)
+                            MaterialBookmarkButton(text: line, source: expressionSource)
                             CopyButton(text: line)
                         }
                         Divider()
                     }
                 }
+
+                SynonymSection(word: entry.word)
             }
             .padding()
         }
         .safeAreaPadding(.bottom, 96)
         .navigationTitle(entry.word)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 素材本收藏按钮（句子行旁的小书签：默认文件夹一键存入，或用 Menu 选文件夹）
+
+struct MaterialBookmarkButton: View {
+    let text: String
+    let source: String
+
+    @ObservedObject private var materials = MaterialStore.shared
+    @State private var saved = false
+
+    var body: some View {
+        Menu {
+            if let fallback = materials.defaultFolder {
+                Button("存入默认文件夹（\(fallback.name)）") {
+                    save(to: fallback)
+                }
+            }
+            ForEach(materials.folders.filter { $0.id != materials.defaultFolder?.id }) { folder in
+                Button(folder.name) {
+                    save(to: folder)
+                }
+            }
+        } label: {
+            Image(systemName: saved ? "bookmark.fill" : "bookmark")
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private func save(to folder: MaterialFolder) {
+        materials.addItem(text: text, source: source, folderId: folder.id)
+        saved = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            saved = false
+        }
+    }
+}
+
+// MARK: - 近义词/替换词：先显示内置种子，再用 AI 生成更多（结果本机缓存）
+
+struct SynonymSection: View {
+    let word: String
+
+    @ObservedObject private var synonymCache = SynonymCache.shared
+    @State private var groups: [SynonymGroup] = []
+    @State private var aiGroups: [SynonymGroup] = []
+    @State private var isGenerating = false
+    @State private var errorMessage = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("近义词/替换词")
+                .font(.headline)
+            if groups.isEmpty && aiGroups.isEmpty {
+                Text("这个词还没有内置近义词，可以用 AI 生成")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                synonymGroupView(group)
+            }
+            if !aiGroups.isEmpty {
+                Text("AI 生成")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                ForEach(Array(aiGroups.enumerated()), id: \.offset) { _, group in
+                    synonymGroupView(group)
+                }
+            }
+            if !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .font(.callout)
+            }
+            if isGenerating {
+                ProgressView("正在生成近义词…")
+            } else {
+                Button("用 AI 生成更多") {
+                    Task { await generate() }
+                }
+                .buttonStyle(.bordered)
+                .disabled(!AISettings.hasKey)
+                if !AISettings.hasKey {
+                    Text("生成近义词需要配置 API Key")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .onAppear {
+            groups = SynonymSeeds.seeds[word] ?? []
+            if let cached = synonymCache.cached(word) {
+                aiGroups = cached
+            }
+        }
+    }
+
+    private func synonymGroupView(_ group: SynonymGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(group.title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            ForEach(Array(group.items.enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.word)
+                        if !item.note.isEmpty {
+                            Text(item.note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    CopyButton(text: item.word)
+                }
+                Divider()
+            }
+        }
+    }
+
+    private func generate() async {
+        errorMessage = ""
+        isGenerating = true
+        defer { isGenerating = false }
+        let system = """
+        你是中文文学意象词典的编纂者。用户给一个词，你按程度/语气/场景分组，给出近义词或替换表达。只返回一个 JSON 对象，格式固定为：
+        {"groups":[{"title":"组名","items":[{"word":"词","note":"一句话用法差别说明"}]}]}
+        要求：每组 2-4 个词，差别说明一句话讲清程度、语气或场景的不同；不要解释，不要加代码围栏。
+        """
+        do {
+            let raw = try await AIClient.chat(system: system, user: word)
+            var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.hasPrefix("```") {
+                if let firstNewline = text.firstIndex(of: "\n") {
+                    text = String(text[text.index(after: firstNewline)...])
+                }
+                if text.hasSuffix("```") {
+                    text = String(text.dropLast(3))
+                }
+                text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            struct SynonymResponse: Decodable {
+                let groups: [SynonymGroup]
+            }
+            guard let data = text.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode(SynonymResponse.self, from: data),
+                  !decoded.groups.isEmpty else {
+                errorMessage = "接口返回的内容无法解析，请重试"
+                return
+            }
+            aiGroups = decoded.groups
+            synonymCache.save(word: word, groups: decoded.groups)
+        } catch {
+            errorMessage = (error as? AIError)?.errorDescription ?? "请求失败，请检查网络和接口配置"
+        }
+    }
+}
+
+// MARK: - 场景灵感库：列表与详情（每句带复制）
+
+struct SceneListView: View {
+    var body: some View {
+        List {
+            ForEach(SceneLibrary.entries) { scene in
+                NavigationLink(destination: SceneDetailView(scene: scene)) {
+                    Text(scene.keyword)
+                }
+            }
+        }
+        .safeAreaPadding(.bottom, 96)
+        .navigationTitle("场景灵感库")
+    }
+}
+
+struct SceneDetailView: View {
+    let scene: SceneEntry
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                sceneSection(title: "人物表现", lines: scene.characters)
+                sceneSection(title: "环境描写", lines: scene.environment)
+                sceneSection(title: "动作细节", lines: scene.actions)
+                sceneSection(title: "参考句子", lines: scene.sentences)
+            }
+            .padding()
+        }
+        .safeAreaPadding(.bottom, 96)
+        .navigationTitle(scene.keyword)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func sceneSection(title: String, lines: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+            ForEach(lines, id: \.self) { line in
+                HStack(alignment: .top) {
+                    Text(line)
+                        .font(.body)
+                    Spacer()
+                    CopyButton(text: line)
+                }
+                Divider()
+            }
+        }
     }
 }
 
@@ -827,6 +1081,242 @@ struct MySentencesView: View {
                     systemImage: "plus",
                     description: Text("在 AI 改写结果或历史记录旁点加号，就会保存到这里")
                 )
+            }
+        }
+    }
+}
+
+// MARK: - 素材本：文件夹管理、手动添加、全文搜索、批量复制、导出与备份恢复
+
+struct MaterialBookView: View {
+    @ObservedObject private var materials = MaterialStore.shared
+
+    @State private var selectedFolderId: UUID?
+    @State private var searchText = ""
+    @State private var selectedIds: Set<UUID> = []
+    @State private var showingAddFolder = false
+    @State private var newFolderName = ""
+    @State private var renameTarget: MaterialFolder?
+    @State private var renameName = ""
+    @State private var deleteTarget: MaterialFolder?
+    @State private var showingAddItem = false
+    @State private var newText = ""
+    @State private var newNote = ""
+    @State private var newTags = ""
+    @State private var showingImporter = false
+    @State private var importMessage = ""
+
+    private var shownItems: [MaterialItem] {
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return materials.search(searchText)
+        }
+        if let id = selectedFolderId,
+           let folder = materials.folders.first(where: { $0.id == id }) {
+            return materials.items(in: folder)
+        }
+        return materials.items
+    }
+
+    private var selectedTexts: String {
+        materials.items
+            .filter { selectedIds.contains($0.id) }
+            .map { $0.text }
+            .joined(separator: "\n\n")
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    TextField("搜索素材：文本、备注、标签", text: $searchText)
+                    Picker("文件夹", selection: $selectedFolderId) {
+                        Text("全部").tag(nil as UUID?)
+                        ForEach(materials.folders) { folder in
+                            Text(folder.name).tag(folder.id as UUID?)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                Section("文件夹") {
+                    ForEach(materials.folders) { folder in
+                        HStack {
+                            Text(folder.name)
+                            Spacer()
+                            Text("\(materials.items(in: folder).count) 条")
+                                .foregroundStyle(.secondary)
+                            Button("改名") {
+                                renameTarget = folder
+                                renameName = folder.name
+                            }
+                            .buttonStyle(.borderless)
+                            if folder.id != materials.defaultFolder?.id {
+                                Button("删除", role: .destructive) {
+                                    deleteTarget = folder
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                    Button("新建文件夹") {
+                        newFolderName = ""
+                        showingAddFolder = true
+                    }
+                }
+
+                if !selectedIds.isEmpty {
+                    Section {
+                        Button("复制选中（\(selectedIds.count) 条）") {
+                            UIPasteboard.general.string = selectedTexts
+                        }
+                        Button("取消选择") {
+                            selectedIds = []
+                        }
+                    }
+                }
+
+                Section("素材（\(shownItems.count) 条）") {
+                    if shownItems.isEmpty {
+                        Text("还没有素材，在详情页句子旁点书签、或下面手动添加")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(shownItems) { item in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(alignment: .top) {
+                                Button {
+                                    if selectedIds.contains(item.id) {
+                                        selectedIds.remove(item.id)
+                                    } else {
+                                        selectedIds.insert(item.id)
+                                    }
+                                } label: {
+                                    Image(systemName: selectedIds.contains(item.id) ? "checkmark.square" : "square")
+                                }
+                                .buttonStyle(.borderless)
+                                Text(item.text)
+                                Spacer()
+                                CopyButton(text: item.text)
+                            }
+                            if !item.note.isEmpty {
+                                Text("备注：\(item.note)")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if !item.tags.isEmpty {
+                                Text("标签：\(item.tags.joined(separator: "、"))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if !item.source.isEmpty {
+                                Text("来源：\(item.source)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .onDelete { offsets in
+                        for index in offsets {
+                            materials.removeItem(shownItems[index].id)
+                        }
+                    }
+                }
+
+                Section("导出与备份") {
+                    ShareLink("导出 Markdown", item: materials.exportMarkdown())
+                    ShareLink("导出 TXT", item: materials.exportText())
+                    ShareLink("备份（JSON 文件）", item: materials.exportBackup())
+                    Button("从备份文件恢复") {
+                        showingImporter = true
+                    }
+                    if !importMessage.isEmpty {
+                        Text(importMessage)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .safeAreaPadding(.bottom, 96)
+            .navigationTitle("素材本")
+            .toolbar {
+                Button("添加") {
+                    newText = ""
+                    newNote = ""
+                    newTags = ""
+                    showingAddItem = true
+                }
+            }
+            .alert("新建文件夹", isPresented: $showingAddFolder) {
+                TextField("文件夹名，如：小说A", text: $newFolderName)
+                Button("确定") {
+                    materials.addFolder(newFolderName)
+                }
+                Button("取消", role: .cancel) {}
+            }
+            .alert("改名", isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } }
+            )) {
+                TextField("文件夹名", text: $renameName)
+                Button("确定") {
+                    if let target = renameTarget {
+                        materials.renameFolder(target, to: renameName)
+                    }
+                    renameTarget = nil
+                }
+                Button("取消", role: .cancel) {
+                    renameTarget = nil
+                }
+            }
+            .alert("删除文件夹？", isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } }
+            )) {
+                Button("删除", role: .destructive) {
+                    if let target = deleteTarget {
+                        materials.deleteFolder(target)
+                    }
+                    deleteTarget = nil
+                }
+                Button("取消", role: .cancel) {
+                    deleteTarget = nil
+                }
+            } message: {
+                Text("文件夹里的条目会移入默认文件夹，不会删除。")
+            }
+            .alert("添加素材", isPresented: $showingAddItem) {
+                TextField("素材文本", text: $newText)
+                TextField("备注（可选）", text: $newNote)
+                TextField("标签（可选，用、分隔）", text: $newTags)
+                Button("确定") {
+                    let tags = newTags
+                        .split(separator: "、")
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    materials.addItem(text: newText, note: newNote, tags: tags, source: "手动添加", folderId: selectedFolderId)
+                    showingAddItem = false
+                }
+                Button("取消", role: .cancel) {}
+            }
+            .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else {
+                        importMessage = "导入失败：没有选到文件"
+                        return
+                    }
+                    if url.startAccessingSecurityScopedResource() {
+                        defer { url.stopAccessingSecurityScopedResource() }
+                        if let json = try? String(contentsOf: url, encoding: .utf8) {
+                            importMessage = materials.importBackup(json) ? "导入成功" : "导入失败：文件格式不对"
+                        } else {
+                            importMessage = "导入失败：读不到文件"
+                        }
+                    } else {
+                        importMessage = "导入失败：打不开文件"
+                    }
+                case .failure:
+                    importMessage = "导入失败"
+                }
             }
         }
     }
