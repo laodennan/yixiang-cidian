@@ -11,6 +11,7 @@ struct YixiangApp: App {
                 .environmentObject(FavoritesStore.shared)
                 .environmentObject(SentenceFavoritesStore.shared)
                 .environmentObject(HistoryStore.shared)
+                .environmentObject(CustomLexiconStore.shared)
                 .environmentObject(tabSelection)
                 .environmentObject(rewriteRefill)
         }

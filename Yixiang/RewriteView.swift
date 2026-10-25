@@ -42,6 +42,7 @@ struct RewriteView: View {
     @State private var errorMessage = ""
     @State private var isLoading = false
     @State private var showingSettings = false
+    @FocusState private var inputFocused: Bool
 
     private var trimmedInput: String {
         input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -57,9 +58,11 @@ struct RewriteView: View {
                     TextField("用平时说话的方式描述，比如：他这个人冷冷的，不爱搭理人", text: $input, axis: .vertical)
                         .lineLimit(3...8)
                         .textFieldStyle(.roundedBorder)
+                        .focused($inputFocused)
 
                     TextField("意象提示（可选，如月亮）", text: $hint)
                         .textFieldStyle(.roundedBorder)
+                        .focused($inputFocused)
 
                     Picker("风格", selection: $selectedStyle) {
                         ForEach(RewriteStyle.allCases, id: \.self) { style in
@@ -92,6 +95,13 @@ struct RewriteView: View {
                     }
 
                     HStack(spacing: 12) {
+                        if inputFocused {
+                            Button("收起键盘") {
+                                inputFocused = false
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
                         Button {
                             Task { await rewrite() }
                         } label: {
@@ -127,6 +137,7 @@ struct RewriteView: View {
                                     Text(version)
                                     HStack {
                                         Spacer()
+                                        AddToLexiconButton(text: version, source: "AI 改写")
                                         SentenceStarButton(text: version, source: "AI 改写")
                                         CopyButton(text: version)
                                     }
@@ -146,6 +157,7 @@ struct RewriteView: View {
                                 Text(paragraphText)
                                 HStack {
                                     Spacer()
+                                    AddToLexiconButton(text: paragraphText, source: "AI 改写·成段")
                                     SentenceStarButton(text: paragraphText, source: "AI 改写·成段")
                                     CopyButton(text: paragraphText)
                                 }
@@ -162,6 +174,12 @@ struct RewriteView: View {
             .navigationTitle("AI 改写")
             .toolbar {
                 Button("设置") { showingSettings = true }
+            }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("收起键盘") { inputFocused = false }
+                }
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()

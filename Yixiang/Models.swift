@@ -139,6 +139,84 @@ final class SentenceFavoritesStore: ObservableObject {
     }
 }
 
+// MARK: - 我的词典：用户从 AI 结果里亲手加入的词条与词句（只存本机）
+
+/// 一句用户从 AI 改写/生成结果里加入词典的词句：本身就是一条可查的表达。
+struct CustomSentence: Codable, Hashable, Identifiable {
+    let id: UUID
+    let text: String
+    let source: String
+    let date: Date
+
+    init(text: String, source: String) {
+        self.id = UUID()
+        self.text = text
+        self.source = source
+        self.date = Date()
+    }
+}
+
+final class CustomLexiconStore: ObservableObject {
+    static let shared = CustomLexiconStore()
+
+    private let wordsKey = "customLexiconWords"
+    private let sentencesKey = "customLexiconSentences"
+
+    @Published private(set) var words: [LexiconEntry] = []
+    @Published private(set) var sentences: [CustomSentence] = []
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: wordsKey),
+           let decoded = try? JSONDecoder().decode([LexiconEntry].self, from: data) {
+            words = decoded
+        }
+        if let data = UserDefaults.standard.data(forKey: sentencesKey),
+           let decoded = try? JSONDecoder().decode([CustomSentence].self, from: data) {
+            sentences = decoded
+        }
+    }
+
+    func isWordAdded(_ word: String) -> Bool {
+        words.contains { $0.word == word }
+    }
+
+    /// AI 现场生成的整条词条存为“我的”词条：类别统一记为“我的”，与内置词库区分。
+    func addWord(_ entry: LexiconEntry) {
+        guard !isWordAdded(entry.word) else { return }
+        words.insert(LexiconEntry(word: entry.word, category: "我的", poems: entry.poems, expressions: entry.expressions), at: 0)
+        saveWords()
+    }
+
+    func removeWord(_ word: String) {
+        words.removeAll { $0.word == word }
+        saveWords()
+    }
+
+    func isSentenceAdded(_ text: String) -> Bool {
+        sentences.contains { $0.text == text }
+    }
+
+    func addSentence(_ text: String, source: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isSentenceAdded(trimmed) else { return }
+        sentences.insert(CustomSentence(text: trimmed, source: source), at: 0)
+        saveSentences()
+    }
+
+    func removeSentence(_ id: UUID) {
+        sentences.removeAll { $0.id == id }
+        saveSentences()
+    }
+
+    private func saveWords() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(words), forKey: wordsKey)
+    }
+
+    private func saveSentences() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(sentences), forKey: sentencesKey)
+    }
+}
+
 // MARK: - 跨 Tab 协作：Tab 选中态与“回填改写”请求（历史页点“再改写”时用）
 
 final class TabSelection: ObservableObject {

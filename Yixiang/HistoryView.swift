@@ -25,7 +25,16 @@ final class HistoryStore: ObservableObject {
     static let shared = HistoryStore()
 
     private let key = "historyEntries"
+    private let retentionKey = "historyRetentionDays"
     private let maxCount = 200
+
+    /// 保留天数：0 = 永久
+    @Published var retentionDays: Int = 30 {
+        didSet {
+            UserDefaults.standard.set(retentionDays, forKey: retentionKey)
+            pruneExpired()
+        }
+    }
 
     @Published private(set) var entries: [HistoryEntry] = []
 
@@ -33,6 +42,21 @@ final class HistoryStore: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: key),
            let decoded = try? JSONDecoder().decode([HistoryEntry].self, from: data) {
             entries = decoded
+        }
+        if UserDefaults.standard.object(forKey: retentionKey) != nil {
+            retentionDays = UserDefaults.standard.integer(forKey: retentionKey)
+        }
+        pruneExpired()
+    }
+
+    /// 删掉超过保留时间的记录；保留时间为 0（永久）时不删
+    func pruneExpired() {
+        guard retentionDays > 0 else { return }
+        let cutoff = Date().addingTimeInterval(TimeInterval(-retentionDays * 86400))
+        let kept = entries.filter { $0.date >= cutoff }
+        if kept.count != entries.count {
+            entries = kept
+            save()
         }
     }
 
@@ -60,6 +84,11 @@ final class HistoryStore: ObservableObject {
         save()
     }
 
+    func remove(_ entry: HistoryEntry) {
+        entries.removeAll { $0.id == entry.id }
+        save()
+    }
+
     func clear() {
         entries = []
         save()
@@ -76,49 +105,113 @@ struct HistoryView: View {
     @EnvironmentObject private var history: HistoryStore
     @State private var showingClearConfirm = false
 
-    private static let dateFormatter: DateFormatter = {
+    private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "M月d日 HH:mm"
+        formatter.dateFormat = "HH:mm"
         return formatter
     }()
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M月d日"
+        return formatter
+    }()
+
+    private struct HistorySection: Identifiable {
+        let title: String
+        let entries: [HistoryEntry]
+
+        var id: String { title }
+    }
+
+    /// 按天分组：今天 / 昨天 / M月d日（跨年加年份）
+    private var sections: [HistorySection] {
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: Date())
+        var groups: [HistorySection] = []
+        for entry in history.entries {
+            let title: String
+            if calendar.isDateInToday(entry.date) {
+                title = "今天"
+            } else if calendar.isDateInYesterday(entry.date) {
+                title = "昨天"
+            } else if calendar.component(.year, from: entry.date) != currentYear {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy年M月d日"
+                title = formatter.string(from: entry.date)
+            } else {
+                title = Self.dayFormatter.string(from: entry.date)
+            }
+            if groups.last?.title == title {
+                groups[groups.count - 1] = HistorySection(
+                    title: title,
+                    entries: groups[groups.count - 1].entries + [entry]
+                )
+            } else {
+                groups.append(HistorySection(title: title, entries: [entry]))
+            }
+        }
+        return groups
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(history.entries) { entry in
-                    NavigationLink(destination: HistoryDetailView(entry: entry)) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(entry.input)
-                                    .font(.headline)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(entry.kind)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                ForEach(sections) { section in
+                    Section(section.title) {
+                        ForEach(section.entries) { entry in
+                            NavigationLink(destination: HistoryDetailView(entry: entry)) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(entry.input)
+                                            .font(.headline)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text(entry.kind)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text(entry.results.first ?? "")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                    Text(Self.timeFormatter.string(from: entry.date))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
-                            Text(entry.results.first ?? "")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            Text(Self.dateFormatter.string(from: entry.date))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        }
+                        .onDelete { offsets in
+                            for index in offsets {
+                                history.remove(section.entries[index])
+                            }
                         }
                     }
-                }
-                .onDelete { offsets in
-                    history.remove(at: offsets)
                 }
             }
             .safeAreaPadding(.bottom, 96)
             .navigationTitle("历史")
             .toolbar {
-                if !history.entries.isEmpty {
-                    Button("清空") {
-                        showingClearConfirm = true
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("保留时间", selection: $history.retentionDays) {
+                            Text("7 天").tag(7)
+                            Text("30 天").tag(30)
+                            Text("90 天").tag(90)
+                            Text("永久").tag(0)
+                        }
+                    } label: {
+                        Label("保留时间", systemImage: "clock")
+                    }
+                    if !history.entries.isEmpty {
+                        Button("清空") {
+                            showingClearConfirm = true
+                        }
                     }
                 }
+            }
+            .onAppear {
+                history.pruneExpired()
             }
             .alert("清空全部历史？", isPresented: $showingClearConfirm) {
                 Button("清空", role: .destructive) {
@@ -149,11 +242,20 @@ struct HistoryDetailView: View {
     @EnvironmentObject private var tabSelection: TabSelection
     @EnvironmentObject private var refill: RewriteRefill
 
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M月d日 HH:mm"
+        return formatter
+    }()
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(entry.kind)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(Self.dateFormatter.string(from: entry.date))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Text(entry.input)
@@ -170,6 +272,7 @@ struct HistoryDetailView: View {
                         HStack(alignment: .top) {
                             Text(line)
                             Spacer()
+                            AddToLexiconButton(text: line, source: "历史·\(entry.input)")
                             SentenceStarButton(text: line, source: "历史·\(entry.input)")
                             CopyButton(text: line)
                         }

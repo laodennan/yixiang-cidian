@@ -49,6 +49,30 @@ struct CopyButton: View {
     }
 }
 
+// MARK: - 加入词典按钮（把 AI 结果存进“我的词典”，点按后短暂显示对勾）
+
+struct AddToLexiconButton: View {
+    let text: String
+    let source: String
+
+    @EnvironmentObject private var customLexicon: CustomLexiconStore
+    @State private var added = false
+
+    var body: some View {
+        Button {
+            customLexicon.addSentence(text, source: source)
+            added = true
+            Task {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                added = false
+            }
+        } label: {
+            Image(systemName: added || customLexicon.isSentenceAdded(text) ? "checkmark" : "plus")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
 // MARK: - 句子收藏按钮（每句独立收藏，点亮即收藏、再点即取消）
 
 struct SentenceStarButton: View {
@@ -71,6 +95,7 @@ struct SentenceStarButton: View {
 
 struct SearchView: View {
     @EnvironmentObject private var history: HistoryStore
+    @EnvironmentObject private var customLexicon: CustomLexiconStore
 
     @State private var query = ""
     @State private var generatedEntry: LexiconEntry?
@@ -80,7 +105,11 @@ struct SearchView: View {
     @State private var showingSettings = false
 
     private var results: [LexiconEntry] {
-        Lexicon.search(query)
+        let base = Lexicon.search(query)
+        let q = trimmedQuery
+        guard !q.isEmpty else { return base }
+        let mine = customLexicon.words.filter { $0.word.contains(q) && !base.contains($0) }
+        return base + mine
     }
 
     private var trimmedQuery: String {
@@ -91,6 +120,26 @@ struct SearchView: View {
         NavigationStack {
             List {
                 if trimmedQuery.isEmpty {
+                    if !customLexicon.words.isEmpty {
+                        NavigationLink(destination: MyWordsView()) {
+                            HStack {
+                                Text("我的词条")
+                                Spacer()
+                                Text("\(customLexicon.words.count) 个")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    if !customLexicon.sentences.isEmpty {
+                        NavigationLink(destination: MySentencesView()) {
+                            HStack {
+                                Text("我的词句")
+                                Spacer()
+                                Text("\(customLexicon.sentences.count) 条")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                     NavigationLink(destination: CategoryListView()) {
                         HStack {
                             Text("按分类浏览")
@@ -101,7 +150,16 @@ struct SearchView: View {
                     }
                 }
                 ForEach(results) { entry in
-                    NavigationLink(entry.word, destination: EntryDetailView(entry: entry))
+                    NavigationLink(destination: EntryDetailView(entry: entry)) {
+                        HStack {
+                            Text(entry.word)
+                            if customLexicon.isWordAdded(entry.word) {
+                                Text("我的")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
             }
             .safeAreaPadding(.bottom, 96)
@@ -216,6 +274,7 @@ struct EntryDetailView: View {
     var isGenerated = false
 
     @EnvironmentObject private var favorites: FavoritesStore
+    @EnvironmentObject private var customLexicon: CustomLexiconStore
 
     /// 句子收藏的来源标注：内置词条按“出自「词」· 古诗句 / 生动表达”，
     /// AI 现场生成的词条统一标为“AI 生成”（词条顶部已有“由 AI 现场生成”提示）。
@@ -234,7 +293,7 @@ struct EntryDetailView: View {
                     Text(entry.word)
                         .font(.largeTitle.bold())
                     Spacer()
-                    if !isGenerated {
+                    if !isGenerated && entry.category != "我的" {
                         Button {
                             favorites.toggle(entry.word)
                         } label: {
@@ -253,6 +312,11 @@ struct EntryDetailView: View {
                     Text("由 AI 现场生成，仅供参考；古诗句请以原文核对")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    Button(customLexicon.isWordAdded(entry.word) ? "已加入我的词典" : "加入我的词典") {
+                        customLexicon.addWord(entry)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(customLexicon.isWordAdded(entry.word))
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -295,6 +359,79 @@ struct EntryDetailView: View {
         .safeAreaPadding(.bottom, 96)
         .navigationTitle(entry.word)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 我的词条 / 我的词句（从 AI 结果里亲手加入的，可删）
+
+struct MyWordsView: View {
+    @EnvironmentObject private var customLexicon: CustomLexiconStore
+
+    var body: some View {
+        List {
+            ForEach(customLexicon.words) { entry in
+                NavigationLink(entry.word, destination: EntryDetailView(entry: entry))
+            }
+            .onDelete { offsets in
+                for index in offsets {
+                    customLexicon.removeWord(customLexicon.words[index].word)
+                }
+            }
+        }
+        .safeAreaPadding(.bottom, 96)
+        .navigationTitle("我的词条")
+        .overlay {
+            if customLexicon.words.isEmpty {
+                ContentUnavailableView(
+                    "还没有加入的词条",
+                    systemImage: "plus",
+                    description: Text("在 AI 生成的词条页点“加入我的词典”，就会出现在这里")
+                )
+            }
+        }
+    }
+}
+
+struct MySentencesView: View {
+    @EnvironmentObject private var customLexicon: CustomLexiconStore
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M月d日 HH:mm"
+        return formatter
+    }()
+
+    var body: some View {
+        List {
+            ForEach(customLexicon.sentences) { item in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .top) {
+                        Text(item.text)
+                        Spacer()
+                        CopyButton(text: item.text)
+                    }
+                    Text("\(item.source) · \(Self.dateFormatter.string(from: item.date))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .onDelete { offsets in
+                for index in offsets {
+                    customLexicon.removeSentence(customLexicon.sentences[index].id)
+                }
+            }
+        }
+        .safeAreaPadding(.bottom, 96)
+        .navigationTitle("我的词句")
+        .overlay {
+            if customLexicon.sentences.isEmpty {
+                ContentUnavailableView(
+                    "还没有加入的词句",
+                    systemImage: "plus",
+                    description: Text("在 AI 改写结果或历史记录旁点加号，就会保存到这里")
+                )
+            }
+        }
     }
 }
 
