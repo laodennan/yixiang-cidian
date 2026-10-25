@@ -96,6 +96,8 @@ struct SentenceStarButton: View {
 struct SearchView: View {
     @EnvironmentObject private var history: HistoryStore
     @EnvironmentObject private var customLexicon: CustomLexiconStore
+    @ObservedObject private var dictStore = DictionaryStore.shared
+    @ObservedObject private var webCache = WebSearchCache.shared
 
     @State private var query = ""
     @State private var generatedEntry: LexiconEntry?
@@ -103,6 +105,10 @@ struct SearchView: View {
     @State private var isGenerating = false
     @State private var aiError = ""
     @State private var showingSettings = false
+    @State private var webSummary: WebSummary?
+    @State private var webSummaryIsCached = false
+    @State private var webLoading = false
+    @State private var webError = ""
 
     private var results: [LexiconEntry] {
         let base = Lexicon.search(query)
@@ -110,6 +116,16 @@ struct SearchView: View {
         guard !q.isEmpty else { return base }
         let mine = customLexicon.words.filter { $0.word.contains(q) && !base.contains($0) }
         return base + mine
+    }
+
+    /// 字典库联查结果（离线）：词典 Tab 没有的词，先看字典里有没有
+    private var dictMatches: DictResults {
+        dictStore.search(trimmedQuery, scope: .all)
+    }
+
+    private var webFallbackURL: URL {
+        let encoded = trimmedQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmedQuery
+        return URL(string: "https://www.baidu.com/s?wd=\(encoded)") ?? URL(string: "https://www.baidu.com")!
     }
 
     private var trimmedQuery: String {
@@ -167,35 +183,175 @@ struct SearchView: View {
             .searchable(text: $query, prompt: "输入意象，如月亮")
             .overlay {
                 if results.isEmpty && !trimmedQuery.isEmpty {
-                    VStack(spacing: 16) {
-                        ContentUnavailableView(
-                            "离线词库里还没有「\(trimmedQuery)」",
-                            systemImage: "magnifyingglass",
-                            description: Text("可以让 AI 现场为这个词生成一则词条")
-                        )
-                        if isGenerating {
-                            ProgressView("正在生成…")
-                        } else {
-                            Button("用 AI 生成「\(trimmedQuery)」的内容") {
-                                Task { await generate() }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            if !AISettings.hasKey {
-                                Button("去设置 API Key") {
-                                    showingSettings = true
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            Text("意象词库里还没有「\(trimmedQuery)」")
+                                .font(.headline)
+
+                            // 字典库联查（离线）：词典没有的词，字典里可能有
+                            if dictStore.loaded {
+                                if !dictMatches.isEmpty {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        Text("字典里找到了")
+                                            .font(.headline)
+                                        if !dictMatches.idioms.isEmpty {
+                                            Text("成语")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                            ForEach(Array(dictMatches.idioms.prefix(5)), id: \.word) { item in
+                                                NavigationLink(destination: DictIdiomDetailView(item: item)) {
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(item.word)
+                                                        Text(item.explanation)
+                                                            .font(.callout)
+                                                            .foregroundStyle(.secondary)
+                                                            .lineLimit(1)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if !dictMatches.words.isEmpty {
+                                            Text("词语")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                            ForEach(Array(dictMatches.words.prefix(5)), id: \.word) { item in
+                                                NavigationLink(destination: DictWordDetailView(item: item)) {
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(item.word)
+                                                        Text(item.explanation)
+                                                            .font(.callout)
+                                                            .foregroundStyle(.secondary)
+                                                            .lineLimit(1)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if !dictMatches.chars.isEmpty {
+                                            Text("汉字")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                            ForEach(Array(dictMatches.chars.prefix(3)), id: \.word) { item in
+                                                NavigationLink(destination: DictCharDetailView(item: item)) {
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(item.word)
+                                                        Text(item.explanation)
+                                                            .font(.callout)
+                                                            .foregroundStyle(.secondary)
+                                                            .lineLimit(1)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if !dictMatches.xiehouyu.isEmpty {
+                                            Text("歇后语")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                            ForEach(Array(dictMatches.xiehouyu.prefix(3)), id: \.riddle) { item in
+                                                NavigationLink(destination: DictXiehouyuDetailView(item: item)) {
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(item.riddle)
+                                                        Text(item.answer)
+                                                            .font(.callout)
+                                                            .foregroundStyle(.secondary)
+                                                            .lineLimit(1)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                                .font(.callout)
+                            } else {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text("正在加载离线字典…")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            // 联网搜索（免费接口，无需 Key；结果自动缓存到本机）
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("联网搜索")
+                                    .font(.headline)
+                                if let summary = webSummary {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(summary.title)
+                                            .font(.headline)
+                                        Text(summary.extract)
+                                        HStack {
+                                            if webSummaryIsCached {
+                                                Text("本地缓存 · \(MySentencesView.dateFormatter.string(from: summary.fetchedAt))")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            Spacer()
+                                            AddToLexiconButton(text: summary.extract, source: "联网搜索")
+                                            CopyButton(text: summary.extract)
+                                        }
+                                        if let url = URL(string: summary.pageURL) {
+                                            Link("来源：维基百科", destination: url)
+                                                .font(.callout)
+                                        }
+                                        Button("重新获取") {
+                                            Task { await fetchWeb(forceRefresh: true) }
+                                        }
+                                        .font(.callout)
+                                    }
+                                    .padding()
+                                    .background(Color.secondary.opacity(0.1))
+                                    .cornerRadius(12)
+                                } else if webLoading {
+                                    ProgressView("正在联网搜索…")
+                                } else {
+                                    Button("联网搜索「\(trimmedQuery)」") {
+                                        Task { await fetchWeb() }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    if !webError.isEmpty {
+                                        Text(webError)
+                                            .foregroundStyle(.red)
+                                            .font(.callout)
+                                        Link("用浏览器搜索「\(trimmedQuery)」", destination: webFallbackURL)
+                                            .font(.callout)
+                                    }
+                                }
+                            }
+
+                            // AI 生成（原有）
+                            VStack(spacing: 12) {
+                                if isGenerating {
+                                    ProgressView("正在生成…")
+                                } else {
+                                    Button("用 AI 生成「\(trimmedQuery)」的内容") {
+                                        Task { await generate() }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    if !AISettings.hasKey {
+                                        Button("去设置 API Key") {
+                                            showingSettings = true
+                                        }
+                                        .font(.callout)
+                                    }
+                                }
+                                if !aiError.isEmpty {
+                                    Text(aiError)
+                                        .foregroundStyle(.red)
+                                        .font(.callout)
+                                        .multilineTextAlignment(.center)
+                                }
                             }
                         }
-                        if !aiError.isEmpty {
-                            Text(aiError)
-                                .foregroundStyle(.red)
-                                .font(.callout)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-                        }
+                        .padding()
                     }
                 }
+            }
+            .onAppear {
+                dictStore.load()
+            }
+            .onChange(of: trimmedQuery) { _, _ in
+                webSummary = nil
+                webSummaryIsCached = false
+                webError = ""
             }
             .navigationDestination(isPresented: $showGenerated) {
                 if let entry = generatedEntry {
@@ -228,6 +384,113 @@ struct SearchView: View {
         } catch {
             aiError = (error as? AIError)?.errorDescription ?? "生成失败，请重试"
         }
+    }
+
+    /// 联网搜索：先查本机缓存（有缓存直接显示、不断网也能看），没有才联网；
+    /// 联网到的结果自动缓存到本机，并记入历史。
+    private func fetchWeb(forceRefresh: Bool = false) async {
+        let word = trimmedQuery
+        guard !word.isEmpty else { return }
+        if !forceRefresh, let cached = webCache.cached(word) {
+            webSummary = cached
+            webSummaryIsCached = true
+            webError = ""
+            return
+        }
+        webError = ""
+        webLoading = true
+        defer { webLoading = false }
+        do {
+            let summary = try await WebSearchService.fetchSummary(for: word)
+            webCache.save(summary)
+            webSummary = summary
+            webSummaryIsCached = false
+            history.addWebSearch(word: word, summary: summary.extract)
+        } catch WebSearchError.notFound {
+            webSummary = nil
+            webError = "维基百科上没有「\(word)」的词条"
+        } catch {
+            webSummary = nil
+            webError = "联网搜索失败，请检查网络后重试"
+        }
+    }
+}
+
+// MARK: - 联网搜索：中文维基百科免费接口，无需 Key；结果缓存在本机
+
+struct WebSummary: Codable, Hashable {
+    let word: String
+    let title: String
+    let extract: String
+    let pageURL: String
+    let fetchedAt: Date
+}
+
+enum WebSearchError: Error {
+    case notFound
+    case network
+}
+
+enum WebSearchService {
+    private struct WikiSummary: Decodable {
+        let title: String?
+        let extract: String?
+        let content_urls: ContentURLs?
+
+        struct ContentURLs: Decodable {
+            let desktop: PageURL?
+
+            struct PageURL: Decodable {
+                let page: String?
+            }
+        }
+    }
+
+    static func fetchSummary(for word: String) async throws -> WebSummary {
+        let encoded = word.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? word
+        guard let url = URL(string: "https://zh.wikipedia.org/api/rest_v1/page/summary/\(encoded)") else {
+            throw WebSearchError.network
+        }
+        var request = URLRequest(url: url)
+        request.setValue("Wenqi/1.5 (iOS personal dictionary app)", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw WebSearchError.network
+        }
+        guard http.statusCode == 200 else {
+            throw WebSearchError.notFound
+        }
+        let decoded = try JSONDecoder().decode(WikiSummary.self, from: data)
+        guard let extract = decoded.extract, !extract.isEmpty else {
+            throw WebSearchError.notFound
+        }
+        let pageURL = decoded.content_urls?.desktop?.page ?? "https://zh.wikipedia.org/wiki/\(encoded)"
+        return WebSummary(word: word, title: decoded.title ?? word, extract: extract, pageURL: pageURL, fetchedAt: Date())
+    }
+}
+
+/// 联网搜索结果的本机缓存：按词存，重复搜直接显示，断网也能看
+final class WebSearchCache: ObservableObject {
+    static let shared = WebSearchCache()
+
+    private let key = "webSearchCache"
+
+    @Published private(set) var items: [String: WebSummary] = [:]
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([String: WebSummary].self, from: data) {
+            items = decoded
+        }
+    }
+
+    func cached(_ word: String) -> WebSummary? {
+        items[word]
+    }
+
+    func save(_ summary: WebSummary) {
+        items[summary.word] = summary
+        UserDefaults.standard.set(try? JSONEncoder().encode(items), forKey: key)
     }
 }
 
@@ -395,7 +658,7 @@ struct MyWordsView: View {
 struct MySentencesView: View {
     @EnvironmentObject private var customLexicon: CustomLexiconStore
 
-    private static let dateFormatter: DateFormatter = {
+    static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "M月d日 HH:mm"
         return formatter

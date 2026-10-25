@@ -65,6 +65,11 @@ final class HistoryStore: ObservableObject {
         add(HistoryEntry(kind: "改写", input: input, detail: detail, results: results))
     }
 
+    func addWebSearch(word: String, summary: String) {
+        guard !summary.isEmpty else { return }
+        add(HistoryEntry(kind: "联网搜索", input: word, detail: "联网搜索到的释义", results: [summary]))
+    }
+
     func addGenerated(word: String, poems: [PoemLine], expressions: [String]) {
         let results = poems.map { "\($0.text) —— \($0.author)·《\($0.source)》" } + expressions
         guard !results.isEmpty else { return }
