@@ -129,24 +129,33 @@ object AIClient {
                     }
                     try {
                         val obj = JSONObject(text)
+                        // 放宽解析：作者/篇名缺失按空字符串处理，诗句文本为空的条目过滤掉；
+                        // 只要古诗或生动表达有一边有内容就算成功（原来要求两边都非空，
+                        // 是“你好”两次解析失败的根因）
                         val poems = mutableListOf<PoemLine>()
                         val poemArr = obj.optJSONArray("poems") ?: JSONArray()
                         for (i in 0 until poemArr.length()) {
                             val p = poemArr.getJSONObject(i)
-                            poems.add(
-                                PoemLine(
-                                    text = p.optString("text"),
-                                    author = p.optString("author"),
-                                    source = p.optString("source")
+                            val poemText = p.optString("text")
+                            if (poemText.isNotEmpty()) {
+                                poems.add(
+                                    PoemLine(
+                                        text = poemText,
+                                        author = p.optString("author"),
+                                        source = p.optString("source")
+                                    )
                                 )
-                            )
+                            }
                         }
                         val expressions = mutableListOf<String>()
                         val expArr = obj.optJSONArray("expressions") ?: JSONArray()
                         for (i in 0 until expArr.length()) {
-                            expressions.add(expArr.optString(i))
+                            val line = expArr.optString(i)
+                            if (line.isNotEmpty()) {
+                                expressions.add(line)
+                            }
                         }
-                        if (poems.isEmpty() || expressions.isEmpty()) {
+                        if (poems.isEmpty() && expressions.isEmpty()) {
                             callback(Result.failure(AIException("接口返回的内容无法解析，请重试")))
                         } else {
                             callback(
@@ -168,5 +177,55 @@ object AIClient {
                 onFailure = { callback(Result.failure(it)) }
             )
         }
+    }
+
+    /**
+     * 改写版本解析：1) 干净的 JSON 数组；2) 按行切分并去掉行首编号；3) 整体作为一个版本。
+     */
+    fun parseVariants(raw: String): List<String> {
+        var text = raw.trim()
+        if (text.startsWith("```")) {
+            val firstNewline = text.indexOf('\n')
+            if (firstNewline >= 0) {
+                text = text.substring(firstNewline + 1)
+            }
+            if (text.endsWith("```")) {
+                text = text.dropLast(3).toString()
+            }
+            text = text.trim()
+        }
+        // 1) 干净的 JSON 数组
+        try {
+            val arr = JSONArray(text)
+            val cleaned = mutableListOf<String>()
+            for (i in 0 until arr.length()) {
+                val item = arr.optString(i).trim()
+                if (item.isNotEmpty()) cleaned.add(item)
+            }
+            if (cleaned.isNotEmpty()) return cleaned.take(3)
+        } catch (e: Exception) {
+        }
+        // 2) 按行切分：去掉行首编号（如 1. / 1、/ ① / 一、），去掉空行
+        val lines = text.split("\n")
+            .map { stripVariantNumbering(it).trim() }
+            .filter { it.isNotEmpty() }
+        if (lines.size > 1) return lines.take(3)
+        // 3) 兜底：整体作为一个版本（空文本则返回空列表，由调用方提示重试）
+        return if (text.isEmpty()) emptyList() else listOf(text)
+    }
+
+    /** 去掉一行开头的编号：1. / 1、/ 1) / （1）/ ① / 一、，以及 - / • 项目符号 */
+    private fun stripVariantNumbering(line: String): String {
+        var s = line.trim()
+        val digitPrefix = Regex("^(\\d+[.、)）]|（\\d+）|\\(\\d+\\))\\s*")
+        s = digitPrefix.replaceFirst(s, "")
+        if (s.isNotEmpty() && s[0] in '①'..'⑩') {
+            s = s.substring(1).trim()
+        }
+        val cnPrefix = Regex("^[一二三四五六七八九十]+[、.．]\\s*")
+        s = cnPrefix.replaceFirst(s, "")
+        if (s.startsWith("- ")) s = s.substring(2)
+        if (s.startsWith("• ")) s = s.substring(2)
+        return s
     }
 }

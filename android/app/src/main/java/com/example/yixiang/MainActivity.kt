@@ -23,6 +23,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Lexicon.load(applicationContext)
         FavoritesStore.init(applicationContext)
+        SentenceFavoritesStore.init(applicationContext)
+        CustomLexiconStore.init(applicationContext)
+        HistoryStore.init(applicationContext)
+        DictHistoryStore.init(applicationContext)
+        WebSearchCache.init(applicationContext)
+        AppLog.init(applicationContext)
         SettingsStore.init(applicationContext)
         setContent {
             MaterialTheme {
@@ -35,17 +41,34 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun App() {
     var tab by remember { mutableStateOf(Tab.DICT) }
-    var category by remember { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf<LexiconEntry?>(null) }
+    var dictDetail by remember { mutableStateOf<DictDetailRef?>(null) }
+    var historyDetail by remember { mutableStateOf<HistoryEntry?>(null) }
+    var showMyWords by remember { mutableStateOf(false) }
+    var showMySentences by remember { mutableStateOf(false) }
+    var showLog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
-    val inSubScreen = detail != null || category != null
+    val inSubScreen = detail != null || dictDetail != null || historyDetail != null ||
+        showMyWords || showMySentences || showLog
 
     BackHandler(enabled = detail != null) {
         detail = null
     }
-    BackHandler(enabled = detail == null && category != null) {
-        category = null
+    BackHandler(enabled = detail == null && dictDetail != null) {
+        dictDetail = null
+    }
+    BackHandler(enabled = detail == null && dictDetail == null && historyDetail != null) {
+        historyDetail = null
+    }
+    BackHandler(enabled = detail == null && dictDetail == null && historyDetail == null && showMyWords) {
+        showMyWords = false
+    }
+    BackHandler(enabled = detail == null && dictDetail == null && historyDetail == null && !showMyWords && showMySentences) {
+        showMySentences = false
+    }
+    BackHandler(enabled = detail == null && dictDetail == null && historyDetail == null && !showMyWords && !showMySentences && showLog) {
+        showLog = false
     }
 
     Scaffold(
@@ -59,16 +82,22 @@ fun App() {
                         label = { Text("词典") }
                     )
                     NavigationBarItem(
-                        selected = tab == Tab.CATEGORY,
-                        onClick = { tab = Tab.CATEGORY },
+                        selected = tab == Tab.DICTIONARY,
+                        onClick = { tab = Tab.DICTIONARY },
                         icon = {},
-                        label = { Text("分类") }
+                        label = { Text("字典") }
                     )
                     NavigationBarItem(
                         selected = tab == Tab.REWRITE,
                         onClick = { tab = Tab.REWRITE },
                         icon = {},
                         label = { Text("AI 改写") }
+                    )
+                    NavigationBarItem(
+                        selected = tab == Tab.HISTORY,
+                        onClick = { tab = Tab.HISTORY },
+                        icon = {},
+                        label = { Text("历史") }
                     )
                     NavigationBarItem(
                         selected = tab == Tab.FAVORITES,
@@ -85,20 +114,38 @@ fun App() {
                 detail != null -> {
                     EntryDetailScreen(entry = detail!!)
                 }
-                category != null -> {
-                    CategoryEntryListScreen(category = category!!) { entry ->
-                        detail = entry
-                    }
+                dictDetail != null -> {
+                    DictDetailScreen(ref = dictDetail!!)
+                }
+                historyDetail != null -> {
+                    HistoryDetailScreen(entry = historyDetail!!)
+                }
+                showMyWords -> {
+                    MyWordsScreen(onEntryClick = { detail = it })
+                }
+                showMySentences -> {
+                    MySentencesScreen()
+                }
+                showLog -> {
+                    LogScreen()
                 }
                 else -> {
                     when (tab) {
                         Tab.DICT -> DictionaryScreen(
                             onEntryClick = { detail = it },
-                            onShowSettings = { showSettings = true }
+                            onDictDetailClick = { dictDetail = it },
+                            onShowSettings = { showSettings = true },
+                            onShowMyWords = { showMyWords = true },
+                            onShowMySentences = { showMySentences = true }
                         )
-                        Tab.CATEGORY -> CategoryScreen { category = it }
+                        Tab.DICTIONARY -> DictionaryTabScreen(
+                            onDictDetailClick = { dictDetail = it }
+                        )
                         Tab.REWRITE -> RewriteScreen(
                             onShowSettings = { showSettings = true }
+                        )
+                        Tab.HISTORY -> HistoryScreen(
+                            onHistoryClick = { historyDetail = it }
                         )
                         Tab.FAVORITES -> FavoritesScreen { detail = it }
                     }
@@ -108,6 +155,12 @@ fun App() {
     }
 
     if (showSettings) {
-        SettingsDialog(onDismiss = { showSettings = false })
+        SettingsDialog(
+            onDismiss = { showSettings = false },
+            onShowLog = {
+                showSettings = false
+                showLog = true
+            }
+        )
     }
 }
