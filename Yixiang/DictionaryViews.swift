@@ -1,19 +1,28 @@
 import SwiftUI
 import UIKit
 
-// MARK: - 主界面（四个 Tab）
+// MARK: - 主界面（五个 Tab：分类浏览已收进词典页顶部）
 
 struct ContentView: View {
+    @EnvironmentObject private var tabSelection: TabSelection
+
     var body: some View {
-        TabView {
+        TabView(selection: $tabSelection.selection) {
             SearchView()
                 .tabItem { Label("词典", systemImage: "magnifyingglass") }
-            CategoryView()
-                .tabItem { Label("分类", systemImage: "square.grid.2x2") }
+                .tag(0)
+            ChineseDictionaryView()
+                .tabItem { Label("字典", systemImage: "book.closed") }
+                .tag(1)
             RewriteView()
                 .tabItem { Label("AI 改写", systemImage: "wand.and.stars") }
+                .tag(2)
+            HistoryView()
+                .tabItem { Label("历史", systemImage: "clock.arrow.circlepath") }
+                .tag(3)
             FavoritesView()
                 .tabItem { Label("收藏", systemImage: "star") }
+                .tag(4)
         }
     }
 }
@@ -61,6 +70,8 @@ struct SentenceStarButton: View {
 // MARK: - 搜索页（含 AI 兜底：离线词库没有的词可调用用户配置的接口生成）
 
 struct SearchView: View {
+    @EnvironmentObject private var history: HistoryStore
+
     @State private var query = ""
     @State private var generatedEntry: LexiconEntry?
     @State private var showGenerated = false
@@ -78,8 +89,20 @@ struct SearchView: View {
 
     var body: some View {
         NavigationStack {
-            List(results) { entry in
-                NavigationLink(entry.word, destination: EntryDetailView(entry: entry))
+            List {
+                if trimmedQuery.isEmpty {
+                    NavigationLink(destination: CategoryListView()) {
+                        HStack {
+                            Text("按分类浏览")
+                            Spacer()
+                            Text("\(Lexicon.entries.count) 个词条")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                ForEach(results) { entry in
+                    NavigationLink(entry.word, destination: EntryDetailView(entry: entry))
+                }
             }
             .safeAreaPadding(.bottom, 96)
             .navigationTitle("意象词典")
@@ -141,6 +164,7 @@ struct SearchView: View {
 
         do {
             let entry = try await AIClient.generateEntry(for: word)
+            history.addGenerated(word: entry.word, poems: entry.poems, expressions: entry.expressions)
             generatedEntry = entry
             showGenerated = true
         } catch {
@@ -149,28 +173,26 @@ struct SearchView: View {
     }
 }
 
-// MARK: - 分类页
+// MARK: - 分类列表（从词典页顶部进入）
 
-struct CategoryView: View {
+struct CategoryListView: View {
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(Lexicon.categories, id: \.self) { category in
-                    NavigationLink {
-                        EntryListView(category: category)
-                    } label: {
-                        HStack {
-                            Text(category)
-                            Spacer()
-                            Text("\(Lexicon.entries(in: category).count) 个")
-                                .foregroundStyle(.secondary)
-                        }
+        List {
+            ForEach(Lexicon.categories, id: \.self) { category in
+                NavigationLink {
+                    EntryListView(category: category)
+                } label: {
+                    HStack {
+                        Text(category)
+                        Spacer()
+                        Text("\(Lexicon.entries(in: category).count) 个")
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
-            .safeAreaPadding(.bottom, 96)
-            .navigationTitle("分类")
         }
+        .safeAreaPadding(.bottom, 96)
+        .navigationTitle("分类")
     }
 }
 

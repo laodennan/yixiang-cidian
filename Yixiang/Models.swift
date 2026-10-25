@@ -138,3 +138,19 @@ final class SentenceFavoritesStore: ObservableObject {
         UserDefaults.standard.set(try? JSONEncoder().encode(sentences), forKey: key)
     }
 }
+
+// MARK: - 跨 Tab 协作：Tab 选中态与“回填改写”请求（历史页点“再改写”时用）
+
+final class TabSelection: ObservableObject {
+    @Published var selection = 0
+}
+
+final class RewriteRefill: ObservableObject {
+    @Published var text = ""
+    @Published var nonce = 0
+
+    func request(_ text: String) {
+        self.text = text
+        nonce += 1
+    }
+}

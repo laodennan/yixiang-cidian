@@ -19,13 +19,26 @@ enum RewriteStyle: String, CaseIterable {
     }
 }
 
+// MARK: - 改写模式：单句（一次 3 个版本）或成段（一段连贯长文，可调字数）
+
+enum RewriteMode: String, CaseIterable {
+    case single = "单句"
+    case paragraph = "成段"
+}
+
 // MARK: - AI 改写页：用大白话描述，得到优美的形容（接口调用走共享 AIClient，配置见设置页）
 
 struct RewriteView: View {
+    @EnvironmentObject private var history: HistoryStore
+    @EnvironmentObject private var refill: RewriteRefill
+
     @State private var input = ""
     @State private var hint = ""
     @State private var selectedStyle: RewriteStyle = .modern
+    @State private var mode: RewriteMode = .single
+    @State private var targetWords: Double = 300
     @State private var versions: [String] = []
+    @State private var paragraphText = ""
     @State private var errorMessage = ""
     @State private var isLoading = false
     @State private var showingSettings = false
@@ -55,6 +68,29 @@ struct RewriteView: View {
                     }
                     .pickerStyle(.segmented)
 
+                    Picker("模式", selection: $mode) {
+                        ForEach(RewriteMode.allCases, id: \.self) { item in
+                            Text(item.rawValue).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if mode == .paragraph {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("目标字数")
+                                Spacer()
+                                Text("约 \(Int(targetWords)) 字")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.callout)
+                            Slider(value: $targetWords, in: 100...1000, step: 50)
+                            Text("左右拖动，100–1000 字，长文分段写、保持连贯")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     HStack(spacing: 12) {
                         Button {
                             Task { await rewrite() }
@@ -69,11 +105,11 @@ struct RewriteView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(trimmedInput.isEmpty || isLoading)
 
-                        Button("换一批") {
+                        Button(mode == .paragraph ? "换一段" : "换一批") {
                             Task { await rewrite() }
                         }
                         .buttonStyle(.bordered)
-                        .disabled(trimmedInput.isEmpty || isLoading || versions.isEmpty)
+                        .disabled(trimmedInput.isEmpty || isLoading || (mode == .paragraph ? paragraphText.isEmpty : versions.isEmpty))
                     }
 
                     if !errorMessage.isEmpty {
@@ -82,7 +118,7 @@ struct RewriteView: View {
                             .font(.callout)
                     }
 
-                    if !versions.isEmpty {
+                    if mode == .single, !versions.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("形容结果")
                                 .font(.headline)
@@ -101,6 +137,24 @@ struct RewriteView: View {
                             }
                         }
                     }
+
+                    if mode == .paragraph, !paragraphText.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("成段结果（约 \(paragraphText.count) 字）")
+                                .font(.headline)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(paragraphText)
+                                HStack {
+                                    Spacer()
+                                    SentenceStarButton(text: paragraphText, source: "AI 改写·成段")
+                                    CopyButton(text: paragraphText)
+                                }
+                            }
+                            .padding()
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(12)
+                        }
+                    }
                 }
                 .padding()
             }
@@ -112,12 +166,16 @@ struct RewriteView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
             }
+            .onChange(of: refill.nonce) { _, _ in
+                input = refill.text
+            }
         }
     }
 
     private func rewrite() async {
         errorMessage = ""
         versions = []
+        paragraphText = ""
 
         let sentence = trimmedInput
         guard !sentence.isEmpty else { return }
@@ -125,7 +183,6 @@ struct RewriteView: View {
         // 核心任务：口语描述 → 文学形容。输入是通俗口语，输出必须精准、具体、有意境、优美。
         var system = "你是一位擅长中文文学表达的助手。用户输入的是通俗口语——他用平时说话的方式描述一个意思，不需要先想好文绉绉的句子。你的任务是把这段口语描述翻译成精准、具体、有意境、优美的文学形容：精准指贴合原意、不跑题；具体指必须写出可感知的细节，如神情、动作、环境、五感、恰当的比喻，必要时化用古典意象；有意境、优美指读起来像一句值得写进文章里的好句子。禁止只做同义词替换，禁止空洞抒情；意思不能改变，只能丰富细节。"
         system += selectedStyle.styleSentence
-        system += "请恰好返回 3 个不同版本，以 JSON 字符串数组的形式输出，例如 [\"版本一\", \"版本二\", \"版本三\"]，不要加任何解释，也不要加代码围栏。"
         let hintText = hint.trimmingCharacters(in: .whitespacesAndNewlines)
         if !hintText.isEmpty {
             system += "可围绕「\(hintText)」这一意象展开。"
@@ -135,9 +192,27 @@ struct RewriteView: View {
         defer { isLoading = false }
 
         do {
-            versions = try await AIClient.rewriteVariants(system: system, user: sentence)
-            if versions.isEmpty {
-                errorMessage = "接口返回了空结果，请重试"
+            if mode == .paragraph {
+                system += "请写成一段连贯的长文，可分 2–4 个自然段，约 \(Int(targetWords)) 字，起承转合，前后承接，可直接用在文章里。只返回正文，不要任何解释，也不要加代码围栏。"
+                let text = try await AIClient.chat(system: system, user: sentence)
+                paragraphText = text
+                history.addRewrite(
+                    input: sentence,
+                    detail: "\(selectedStyle.rawValue)·成段·约 \(Int(targetWords)) 字",
+                    results: [text]
+                )
+            } else {
+                system += "请恰好返回 3 个不同版本，以 JSON 字符串数组的形式输出，例如 [\"版本一\", \"版本二\", \"版本三\"]，不要加任何解释，也不要加代码围栏。"
+                versions = try await AIClient.rewriteVariants(system: system, user: sentence)
+                if versions.isEmpty {
+                    errorMessage = "接口返回了空结果，请重试"
+                } else {
+                    history.addRewrite(
+                        input: sentence,
+                        detail: "\(selectedStyle.rawValue)·单句·3 个版本",
+                        results: versions
+                    )
+                }
             }
         } catch {
             errorMessage = (error as? AIError)?.errorDescription ?? "请求失败，请检查网络和接口配置"
