@@ -7,10 +7,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
@@ -102,7 +102,7 @@ fun App() {
                     NavigationBarItem(
                         selected = tab == Tab.DICTIONARY,
                         onClick = { tab = Tab.DICTIONARY },
-                        icon = { Icon(Icons.Filled.Book, contentDescription = "字典") },
+                        icon = { Icon(Icons.Filled.List, contentDescription = "字典") },
                         label = { Text("字典") }
                     )
                     NavigationBarItem(
@@ -114,7 +114,7 @@ fun App() {
                     NavigationBarItem(
                         selected = tab == Tab.HISTORY,
                         onClick = { tab = Tab.HISTORY },
-                        icon = { Icon(Icons.Filled.History, contentDescription = "历史") },
+                        icon = { Icon(Icons.Filled.DateRange, contentDescription = "历史") },
                         label = { Text("历史") }
                     )
                     NavigationBarItem(
@@ -126,7 +126,7 @@ fun App() {
                     NavigationBarItem(
                         selected = tab == Tab.MATERIAL,
                         onClick = { tab = Tab.MATERIAL },
-                        icon = { Icon(Icons.Filled.Folder, contentDescription = "素材本") },
+                        icon = { Icon(Icons.Filled.Favorite, contentDescription = "素材本") },
                         label = { Text("素材本") }
                     )
                 }
