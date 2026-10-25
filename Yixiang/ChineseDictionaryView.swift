@@ -7,13 +7,18 @@ struct ChineseDictionaryView: View {
     @ObservedObject private var dictHistory = DictHistoryStore.shared
     @State private var query = ""
     @State private var scope: DictScope = .all
+    /// 防抖后的查询：打字时只更新输入框，停稳 300ms 后才真正搜索
+    @State private var debouncedQuery = ""
+    /// 后台搜到的结果：输入未停稳时沿用上一次结果，不闪空
+    @State private var asyncResults = DictResults()
 
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var results: DictResults {
-        store.search(query, scope: scope)
+    /// 当前输入的搜索是否已停稳出结果（停稳且搜完后若为空，才显示“没有找到”）
+    private var searchSettled: Bool {
+        debouncedQuery == trimmedQuery
     }
 
     var body: some View {
@@ -88,7 +93,7 @@ struct ChineseDictionaryView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
                         }
-                    } else if results.isEmpty {
+                    } else if searchSettled && asyncResults.isEmpty {
                         ContentUnavailableView(
                             "没有找到「\(trimmedQuery)」",
                             systemImage: "magnifyingglass",
@@ -96,9 +101,9 @@ struct ChineseDictionaryView: View {
                         )
                     } else {
                         List {
-                            if !results.chars.isEmpty {
-                                Section("汉字（\(results.chars.count)）") {
-                                    ForEach(results.chars, id: \.word) { item in
+                            if !asyncResults.chars.isEmpty {
+                                Section("汉字（\(asyncResults.chars.count)）") {
+                                    ForEach(asyncResults.chars, id: \.word) { item in
                                         NavigationLink(destination: DictCharDetailView(item: item)) {
                                             DictRowView(
                                                 title: item.word,
@@ -109,9 +114,9 @@ struct ChineseDictionaryView: View {
                                     }
                                 }
                             }
-                            if !results.words.isEmpty {
-                                Section("词语（\(results.words.count)）") {
-                                    ForEach(results.words, id: \.word) { item in
+                            if !asyncResults.words.isEmpty {
+                                Section("词语（\(asyncResults.words.count)）") {
+                                    ForEach(asyncResults.words, id: \.word) { item in
                                         NavigationLink(destination: DictWordDetailView(item: item)) {
                                             DictRowView(
                                                 title: item.word,
@@ -122,9 +127,9 @@ struct ChineseDictionaryView: View {
                                     }
                                 }
                             }
-                            if !results.idioms.isEmpty {
-                                Section("成语（\(results.idioms.count)）") {
-                                    ForEach(results.idioms, id: \.word) { item in
+                            if !asyncResults.idioms.isEmpty {
+                                Section("成语（\(asyncResults.idioms.count)）") {
+                                    ForEach(asyncResults.idioms, id: \.word) { item in
                                         NavigationLink(destination: DictIdiomDetailView(item: item)) {
                                             DictRowView(
                                                 title: item.word,
@@ -135,9 +140,9 @@ struct ChineseDictionaryView: View {
                                     }
                                 }
                             }
-                            if !results.xiehouyu.isEmpty {
-                                Section("歇后语（\(results.xiehouyu.count)）") {
-                                    ForEach(results.xiehouyu, id: \.riddle) { item in
+                            if !asyncResults.xiehouyu.isEmpty {
+                                Section("歇后语（\(asyncResults.xiehouyu.count)）") {
+                                    ForEach(asyncResults.xiehouyu, id: \.riddle) { item in
                                         NavigationLink(destination: DictXiehouyuDetailView(item: item)) {
                                             DictRowView(
                                                 title: item.riddle,
@@ -157,6 +162,28 @@ struct ChineseDictionaryView: View {
             .searchable(text: $query, prompt: "输入汉字、词语、成语或拼音")
             .onAppear {
                 store.load()
+            }
+            .task(id: query) {
+                // 打字防抖：停稳 300ms 后再搜，避免每敲一字扫全库
+                let q = query
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                debouncedQuery = q
+            }
+            .task(id: "\(debouncedQuery)#\(scope.rawValue)#\(store.loaded)") {
+                // 搜索放后台线程跑，主线程只负责显示结果
+                let q = debouncedQuery
+                let currentScope = scope
+                guard store.loaded, !q.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                let start = Date()
+                let found = await Task.detached(priority: .userInitiated) {
+                    DictionaryStore.shared.search(q, scope: currentScope)
+                }.value
+                // 旧结果不覆盖新查询
+                guard q == debouncedQuery, currentScope == scope else { return }
+                asyncResults = found
+                let ms = Int(Date().timeIntervalSince(start) * 1000)
+                let tag = ms > 300 ? "慢搜索" : "搜索"
+                AppLog.log(tag: tag, "字典「\(q)」\(currentScope.rawValue) 耗时 \(ms)ms，汉字 \(found.chars.count)/词语 \(found.words.count)/成语 \(found.idioms.count)/歇后语 \(found.xiehouyu.count)")
             }
         }
     }

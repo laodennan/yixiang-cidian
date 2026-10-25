@@ -1,5 +1,57 @@
 import Foundation
 
+// MARK: - 本机日志：只存本机，供排查卡顿与失败（出现问题时从设置页复制发给助手）
+
+struct LogEntry: Codable, Hashable, Identifiable {
+    let id: UUID
+    let date: Date
+    let tag: String
+    let message: String
+
+    init(tag: String, message: String) {
+        self.id = UUID()
+        self.date = Date()
+        self.tag = tag
+        self.message = message
+    }
+}
+
+final class AppLog: ObservableObject {
+    static let shared = AppLog()
+
+    private let key = "appLogEntries"
+    private let maxCount = 500
+
+    @Published private(set) var entries: [LogEntry] = []
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([LogEntry].self, from: data) {
+            entries = decoded
+        }
+    }
+
+    /// 任何线程都可调用，内部回到主线程写；日志只存本机，不含任何密钥
+    static func log(tag: String, _ message: String) {
+        Task { @MainActor in
+            shared.add(LogEntry(tag: tag, message: message))
+        }
+    }
+
+    private func add(_ entry: LogEntry) {
+        entries.insert(entry, at: 0)
+        if entries.count > maxCount {
+            entries = Array(entries.prefix(maxCount))
+        }
+        UserDefaults.standard.set(try? JSONEncoder().encode(entries), forKey: key)
+    }
+
+    func clear() {
+        entries = []
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
 // MARK: - 离线字典数据模型（数据来自 chinese-xinhua 本地包，已转为 App 内 JSON，断网可用）
 
 struct DictChar: Codable, Hashable {
@@ -124,6 +176,7 @@ final class DictionaryStore: ObservableObject {
     func load() {
         guard !loaded, !loading else { return }
         loading = true
+        let start = Date()
         Task {
             let data = await Self.decodeAll()
             await MainActor.run {
@@ -135,6 +188,8 @@ final class DictionaryStore: ObservableObject {
                 self.wordPinyinKeys = data.words.map { PinyinKey.normalize($0.pinyin) }
                 self.idiomPinyinKeys = data.idioms.map { PinyinKey.normalize($0.pinyin) }
                 self.loaded = true
+                let ms = Int(Date().timeIntervalSince(start) * 1000)
+                AppLog.log(tag: "加载", "离线字典加载完成，耗时 \(ms)ms")
             }
         }
     }
@@ -167,7 +222,22 @@ final class DictionaryStore: ObservableObject {
         }.value
     }
 
+    /// 取够即停的顺序扫描：每类最多取 50 条，够数立即停，不再扫全库。
+    /// 原先每类 filter 全量扫完再截 50 条（词语 26 万条），每敲一字主线程扫 30 万次，是卡顿主因。
+    private func firstMatches<S: Sequence>(_ items: S, limit: Int, where matches: (S.Element) -> Bool) -> [S.Element] {
+        var out: [S.Element] = []
+        out.reserveCapacity(limit)
+        for item in items {
+            if matches(item) {
+                out.append(item)
+                if out.count >= limit { break }
+            }
+        }
+        return out
+    }
+
     /// 检索：含汉字时按字面子串匹配；纯字母时按拼音（或成语首字母缩写）匹配。
+    /// 注意：调用方应在后台线程执行（搜索本身是纯计算，不触 UI），避免堵主线程。
     func search(_ query: String, scope: DictScope) -> DictResults {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard loaded, !q.isEmpty else { return DictResults() }
@@ -177,30 +247,30 @@ final class DictionaryStore: ObservableObject {
 
         if scope == .all || scope == .chars {
             if isCJK {
-                results.chars = Array(chars.filter { $0.word.contains(q) || (!$0.oldword.isEmpty && $0.oldword.contains(q)) }.prefix(50))
+                results.chars = firstMatches(chars, limit: 50) { $0.word.contains(q) || (!$0.oldword.isEmpty && $0.oldword.contains(q)) }
             } else if !qk.isEmpty {
-                results.chars = Array(zip(chars, charPinyinKeys).filter { $0.1.contains(qk) }.map { $0.0 }.prefix(50))
+                results.chars = firstMatches(zip(chars, charPinyinKeys), limit: 50) { $0.1.contains(qk) }.map { $0.0 }
             }
         }
         if scope == .all || scope == .words {
             if isCJK {
-                results.words = Array(words.filter { $0.word.contains(q) }.prefix(50))
+                results.words = firstMatches(words, limit: 50) { $0.word.contains(q) }
             } else if !qk.isEmpty {
-                results.words = Array(zip(words, wordPinyinKeys).filter { $0.1.contains(qk) }.map { $0.0 }.prefix(50))
+                results.words = firstMatches(zip(words, wordPinyinKeys), limit: 50) { $0.1.contains(qk) }.map { $0.0 }
             }
         }
         if scope == .all || scope == .idioms {
             if isCJK {
-                results.idioms = Array(idioms.filter { $0.word.contains(q) }.prefix(50))
+                results.idioms = firstMatches(idioms, limit: 50) { $0.word.contains(q) }
             } else if !qk.isEmpty {
-                results.idioms = Array(zip(idioms, idiomPinyinKeys).filter {
+                results.idioms = firstMatches(zip(idioms, idiomPinyinKeys), limit: 50) {
                     $0.1.contains(qk) || $0.0.abbreviation.lowercased().contains(qk)
-                }.map { $0.0 }.prefix(50))
+                }.map { $0.0 }
             }
         }
         if scope == .all || scope == .xiehouyu {
             if isCJK {
-                results.xiehouyu = Array(xiehouyu.filter { $0.riddle.contains(q) || $0.answer.contains(q) }.prefix(50))
+                results.xiehouyu = firstMatches(xiehouyu, limit: 50) { $0.riddle.contains(q) || $0.answer.contains(q) }
             }
         }
         return results

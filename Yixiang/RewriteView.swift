@@ -238,6 +238,70 @@ struct RewriteView: View {
     }
 }
 
+// MARK: - 日志查看页（本机日志，供排查卡顿与失败）
+
+struct LogView: View {
+    @ObservedObject private var appLog = AppLog.shared
+    @State private var showingClearConfirm = false
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
+    private var logText: String {
+        appLog.entries.map { "\(Self.timeFormatter.string(from: $0.date)) [\($0.tag)] \($0.message)" }.joined(separator: "\n")
+    }
+
+    var body: some View {
+        List {
+            if appLog.entries.isEmpty {
+                ContentUnavailableView(
+                    "还没有日志",
+                    systemImage: "doc.text",
+                    description: Text("搜索、联网、AI 生成的耗时与失败都会记在这里")
+                )
+            } else {
+                ForEach(appLog.entries) { entry in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(Self.timeFormatter.string(from: entry.date))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(entry.tag)
+                                .font(.caption)
+                                .foregroundStyle(entry.tag.contains("失败") || entry.tag.contains("慢") ? .red : .secondary)
+                        }
+                        Text(entry.message)
+                            .font(.callout)
+                    }
+                }
+            }
+        }
+        .navigationTitle("日志")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !appLog.entries.isEmpty {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    ShareLink(item: logText)
+                    Button("清空") {
+                        showingClearConfirm = true
+                    }
+                }
+            }
+        }
+        .alert("清空全部日志？", isPresented: $showingClearConfirm) {
+            Button("清空", role: .destructive) {
+                appLog.clear()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("清空后不可恢复。")
+        }
+    }
+}
+
 // MARK: - 接口设置页（密钥只存本机）
 
 struct SettingsView: View {
@@ -245,6 +309,7 @@ struct SettingsView: View {
     @AppStorage("aiAPIKey") private var apiKey = ""
     @AppStorage("aiModel") private var model = "gpt-4o-mini"
     @ObservedObject private var webCache = WebSearchCache.shared
+    @ObservedObject private var appLog = AppLog.shared
 
     @Environment(\.dismiss) private var dismiss
 
@@ -284,6 +349,20 @@ struct SettingsView: View {
                         webCache.clear()
                     }
                     .disabled(webCache.items.isEmpty)
+                }
+
+                Section("日志") {
+                    NavigationLink(destination: LogView()) {
+                        HStack {
+                            Text("查看日志")
+                            Spacer()
+                            Text("\(appLog.entries.count) 条")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text("日志只存在本机，不含密钥。出现卡顿或问题时，从这里复制日志发给 nana 排查。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("关于") {
