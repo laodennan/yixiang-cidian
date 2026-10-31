@@ -62,6 +62,14 @@ enum RewritePolishMode: String, CaseIterable {
     }
 }
 
+// MARK: - 去 AI 腔三项自查：可与风格、改写模式叠加使用，默认开启
+
+enum AntiAICheck {
+    /// 追加到改写系统提示词里的自查要求：只输出自查后的成稿，不输出自查过程。
+    /// 三项来自对 AI 文本通病的研究：嵌套长句、别扭搭配、不自然比喻。
+    static let promptSentence = "成稿前请做去 AI 腔三项自查，并直接按自查后的结果输出，不要输出自查过程：①拆嵌套长句：一句话里不要层层套从句，长句拆成清楚的短句，让读者一次读懂主干；②换别扭搭配：词语搭配要符合中文自然说法，每个词单看都对、连起来却没人会这么说的组合要换掉；③删不自然比喻：比喻必须贴合眼前的场景和人物，牵强、没人会用的比喻直接删掉，或改成具体细节。"
+}
+
 // MARK: - 对话助手：4 档情绪演绎 + 对话前后细节
 
 enum DialogueEmotion: String, CaseIterable {
@@ -101,6 +109,7 @@ struct RewriteView: View {
     @State private var showingSettings = false
     @State private var section: RewriteSection = .rewrite
     @State private var polishMode: RewritePolishMode = .dedup
+    @AppStorage("rewriteAntiAICheck") private var antiAICheck = true
     @State private var originalText = ""
     @State private var dialogueLine = ""
     @State private var dialogueCharacter = ""
@@ -161,6 +170,12 @@ struct RewriteView: View {
                     }
                     .pickerStyle(.menu)
                     Text("改写模式可与单句/成段、风格叠加使用")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Toggle("去 AI 腔三项自查", isOn: $antiAICheck)
+                        .font(.callout)
+                    Text("生成前自查：拆嵌套长句 · 换别扭搭配 · 删不自然比喻")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -453,6 +468,9 @@ struct RewriteView: View {
         var system = "你是一位擅长中文文学表达的助手。用户输入的是通俗口语——他用平时说话的方式描述一个意思，不需要先想好文绉绉的句子。你的任务是把这段口语描述翻译成精准、具体、有意境、优美的文学形容：精准指贴合原意、不跑题；具体指必须写出可感知的细节，如神情、动作、环境、五感、恰当的比喻，必要时化用古典意象；有意境、优美指读起来像一句值得写进文章里的好句子。禁止只做同义词替换，禁止空洞抒情；意思不能改变，只能丰富细节。"
         system += selectedStyle.styleSentence
         system += polishMode.polishSentence
+        if antiAICheck {
+            system += AntiAICheck.promptSentence
+        }
         let hintText = hint.trimmingCharacters(in: .whitespacesAndNewlines)
         if !hintText.isEmpty {
             system += "可围绕「\(hintText)」这一意象展开。"
@@ -468,7 +486,7 @@ struct RewriteView: View {
                 paragraphText = text
                 history.addRewrite(
                     input: sentence,
-                    detail: "\(selectedStyle.rawValue)·\(polishMode.rawValue)·成段·约 \(Int(targetWords)) 字",
+                    detail: "\(selectedStyle.rawValue)·\(polishMode.rawValue)\(antiAICheck ? "·去AI腔自查" : "")·成段·约 \(Int(targetWords)) 字",
                     results: [text]
                 )
             } else {
@@ -479,7 +497,7 @@ struct RewriteView: View {
                 } else {
                     history.addRewrite(
                         input: sentence,
-                        detail: "\(selectedStyle.rawValue)·\(polishMode.rawValue)·单句·3 个版本",
+                        detail: "\(selectedStyle.rawValue)·\(polishMode.rawValue)\(antiAICheck ? "·去AI腔自查" : "")·单句·3 个版本",
                         results: versions
                     )
                 }
